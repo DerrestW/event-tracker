@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: urban-slide-tracker
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/events
+    envVars:
+      - key: PORT
+        value: "4000"
+      - key: STORAGE_ROOT
+        value: /var/data
+    disk:
+      name: urban-slide-storage
+      mountPath: /var/data
+      sizeGB: 1
