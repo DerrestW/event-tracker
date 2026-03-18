@@ -18,12 +18,22 @@ import {
   expenseCategoryLabels,
   todoProgressOptions,
 } from './defaults'
+import {
+  createEvent as createEventRecord,
+  deleteDocument as deleteDocumentRecord,
+  deleteEventRecord,
+  getAnalytics as fetchAnalytics,
+  getEvent as fetchEvent,
+  getReminders as fetchReminders,
+  listEvents,
+  updateEventRecord,
+  uploadDocument as uploadDocumentRecord,
+} from './dataClient'
 import type {
   AnalyticsSnapshot,
   ContractStatus,
   ContactEntry,
   EventDetail,
-  EventDocument,
   EventInfo,
   EventSummary,
   ExpenseCategory,
@@ -169,23 +179,6 @@ function downloadCalendarEntry(input: { title: string; description: string; date
   URL.revokeObjectURL(url)
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(text || `Request failed: ${response.status}`)
-  }
-
-  return (await response.json()) as T
-}
-
 function App() {
   const [summaries, setSummaries] = useState<EventSummary[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsSnapshot | null>(null)
@@ -221,7 +214,7 @@ function App() {
   }, [deferredSearch, summaries])
 
   const loadEvent = useCallback(async (eventId: number) => {
-    const detail = await api<EventDetail>(`/api/events/${eventId}`)
+    const detail = await fetchEvent(eventId)
     startTransition(() => {
       setSelectedId(eventId)
       setSelectedEvent(detail)
@@ -234,7 +227,7 @@ function App() {
 
   const loadAnalytics = useCallback(async () => {
     try {
-      const snapshot = await api<AnalyticsSnapshot>('/api/analytics')
+      const snapshot = await fetchAnalytics()
       setAnalytics(snapshot)
       setSummaries(snapshot.comparison)
     } catch (error) {
@@ -244,7 +237,7 @@ function App() {
 
   const loadReminders = useCallback(async () => {
     try {
-      const items = await api<ReminderItem[]>('/api/reminders')
+      const items = await fetchReminders()
       setReminders(items)
     } catch {
       // Keep reminder fetch silent if it fails.
@@ -254,7 +247,7 @@ function App() {
   const loadEvents = useCallback(async (nextSelectedId?: number | null) => {
     setLoading(true)
     try {
-      const data = await api<EventSummary[]>('/api/events')
+      const data = await listEvents()
       setSummaries(data)
 
       const targetId =
@@ -296,10 +289,7 @@ function App() {
 
     setSaving(true)
     try {
-      const saved = await api<EventDetail>(`/api/events/${event.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(event),
-      })
+      const saved = await updateEventRecord(event)
 
       setSelectedEvent(saved)
       setDirty(false)
@@ -307,7 +297,7 @@ function App() {
 
       await loadAnalytics()
       await loadReminders()
-      const nextSummaries = await api<EventSummary[]>('/api/events')
+      const nextSummaries = await listEvents()
       setSummaries(nextSummaries)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to save event.')
@@ -361,8 +351,8 @@ function App() {
   async function handleCreateEvent() {
     try {
       setSaving(true)
-      const created = await api<EventDetail>('/api/events', { method: 'POST' })
-      const nextSummaries = await api<EventSummary[]>('/api/events')
+      const created = await createEventRecord()
+      const nextSummaries = await listEvents()
       setSummaries(nextSummaries)
       setSelectedId(created.id)
       setSelectedEvent(created)
@@ -390,7 +380,7 @@ function App() {
 
     try {
       setSaving(true)
-      await api(`/api/events/${selectedEvent.id}`, { method: 'DELETE' })
+      await deleteEventRecord(selectedEvent.id)
       setMessage('Event deleted.')
       await loadEvents(null)
     } catch (error) {
@@ -416,21 +406,7 @@ function App() {
 
     try {
       setSaving(true)
-      const formData = new FormData()
-      formData.append('file', documentFile)
-      formData.append('documentType', documentType)
-      formData.append('notes', documentNotes)
-
-      const response = await fetch(`/api/events/${selectedEvent.id}/documents`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        throw new Error(await response.text())
-      }
-
-      const document = (await response.json()) as EventDocument
+      const document = await uploadDocumentRecord(selectedEvent.id, documentType, documentNotes, documentFile)
       setSelectedEvent({
         ...selectedEvent,
         documents: [document, ...selectedEvent.documents],
@@ -452,7 +428,7 @@ function App() {
 
     try {
       setSaving(true)
-      await api(`/api/events/${selectedEvent.id}/documents/${documentId}`, { method: 'DELETE' })
+      await deleteDocumentRecord(selectedEvent.id, documentId)
       setSelectedEvent({
         ...selectedEvent,
         documents: selectedEvent.documents.filter((item) => item.id !== documentId),
