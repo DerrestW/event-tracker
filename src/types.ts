@@ -112,6 +112,30 @@ export interface StaffEntry {
   inviteNotes: string
 }
 
+export interface InvoiceLineItem {
+  id: number
+  description: string
+  quantity: number
+  rate: number
+}
+
+export interface InvoiceDraft {
+  invoiceNumber: string
+  invoiceDate: string
+  dueDate: string
+  paymentTerms: string
+  senderName: string
+  senderAddress: string
+  senderEmail: string
+  senderPhone: string
+  billToName: string
+  billToAddress: string
+  remitTo: string
+  notes: string
+  logoDataUrl: string
+  lineItems: InvoiceLineItem[]
+}
+
 export interface EventInfo {
   overview: string
   paymentScheduleNotes: string
@@ -163,6 +187,7 @@ export interface EventDetail extends EventSummary {
   rentals: RentalEntry[]
   timeSlots: TimeSlotEntry[]
   staff: StaffEntry[]
+  invoice: InvoiceDraft
   documents: EventDocument[]
 }
 

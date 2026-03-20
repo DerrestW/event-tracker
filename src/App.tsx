@@ -13,6 +13,7 @@ import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import {
   blankEventDetail,
+  blankInvoice,
   contractStatusOptions,
   eventStatuses,
   expenseCategoryLabels,
@@ -40,6 +41,8 @@ import type {
   ExpenseItem,
   FlightEntry,
   HotelEntry,
+  InvoiceDraft,
+  InvoiceLineItem,
   PaymentEntry,
   ReminderItem,
   RentalEntry,
@@ -178,6 +181,10 @@ function downloadCalendarEntry(input: { title: string; description: string; date
   anchor.click()
   URL.revokeObjectURL(url)
 }
+
+const invoiceLineTotal = (item: InvoiceLineItem) => item.quantity * item.rate
+const invoiceTotal = (invoice: InvoiceDraft) =>
+  invoice.lineItems.reduce((sum, item) => sum + invoiceLineTotal(item), 0)
 
 function App() {
   const [summaries, setSummaries] = useState<EventSummary[]>([])
@@ -526,6 +533,35 @@ function App() {
     XLSX.utils.book_append_sheet(
       workbook,
       XLSX.utils.aoa_to_sheet([
+        ['Invoice Number', selectedEvent.invoice.invoiceNumber],
+        ['Invoice Date', selectedEvent.invoice.invoiceDate],
+        ['Due Date', selectedEvent.invoice.dueDate],
+        ['Payment Terms', selectedEvent.invoice.paymentTerms],
+        ['Sender Name', selectedEvent.invoice.senderName],
+        ['Sender Address', selectedEvent.invoice.senderAddress],
+        ['Sender Email', selectedEvent.invoice.senderEmail],
+        ['Sender Phone', selectedEvent.invoice.senderPhone],
+        ['Bill To Name', selectedEvent.invoice.billToName],
+        ['Bill To Address', selectedEvent.invoice.billToAddress],
+        ['Remit To', selectedEvent.invoice.remitTo],
+        ['Notes', selectedEvent.invoice.notes],
+        [],
+        ['Description', 'Quantity', 'Rate', 'Amount'],
+        ...selectedEvent.invoice.lineItems.map((item) => [
+          item.description,
+          item.quantity,
+          item.rate,
+          invoiceLineTotal(item),
+        ]),
+        [],
+        ['Invoice Total', invoiceTotal(selectedEvent.invoice)],
+      ]),
+      'Invoice',
+    )
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
         ['Overview', selectedEvent.info.overview],
         ['Payment Schedule Notes', selectedEvent.info.paymentScheduleNotes],
         ['Meeting Location', selectedEvent.info.meetingLocation],
@@ -633,6 +669,23 @@ function App() {
     setDirty(true)
   }
 
+  function updateInvoice(patch: Partial<InvoiceDraft>) {
+    setSelectedEvent((current) => {
+      if (!current) {
+        return current
+      }
+
+      return {
+        ...current,
+        invoice: {
+          ...current.invoice,
+          ...patch,
+        },
+      }
+    })
+    setDirty(true)
+  }
+
   function replaceRows<K extends keyof EventDetail>(key: K, value: EventDetail[K]) {
     updateEvent({ [key]: value } as Partial<EventDetail>)
   }
@@ -687,8 +740,114 @@ function App() {
     replaceRows('staff', selectedEvent.staff.map((item) => (item.id === id ? { ...item, ...patch } : item)))
   }
 
+  function updateInvoiceLineRow(id: number, patch: Partial<InvoiceLineItem>) {
+    if (!selectedEvent) return
+    updateInvoice({
+      lineItems: selectedEvent.invoice.lineItems.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    })
+  }
+
+  async function handleInvoiceLogoUpload(file: File | null) {
+    if (!file) {
+      updateInvoice({ logoDataUrl: '' })
+      return
+    }
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+
+    updateInvoice({ logoDataUrl: dataUrl })
+    setMessage('Invoice logo added.')
+  }
+
+  function exportInvoicePdf() {
+    if (!selectedEvent) {
+      return
+    }
+
+    const { invoice } = selectedEvent
+    const doc = new jsPDF()
+    let currentY = 18
+    const lineItemRows = invoice.lineItems.filter((item) => item.description.trim() || item.quantity || item.rate)
+    const safeLineItems = lineItemRows.length ? lineItemRows : blankInvoice.lineItems
+    const total = safeLineItems.reduce((sum, item) => sum + invoiceLineTotal(item), 0)
+
+    if (invoice.logoDataUrl) {
+      try {
+        const imageFormat = invoice.logoDataUrl.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG'
+        doc.addImage(invoice.logoDataUrl, imageFormat, 14, 14, 36, 20)
+        currentY = 40
+      } catch {
+        currentY = 18
+      }
+    }
+
+    doc.setFontSize(22)
+    doc.text('INVOICE', 196, 20, { align: 'right' })
+    doc.setFontSize(10)
+    doc.text(`Invoice #: ${invoice.invoiceNumber || selectedEvent.id}`, 196, 28, { align: 'right' })
+    doc.text(`Invoice Date: ${invoice.invoiceDate || todayDate()}`, 196, 34, { align: 'right' })
+    doc.text(`Due Date: ${invoice.dueDate || 'TBD'}`, 196, 40, { align: 'right' })
+
+    doc.setFontSize(13)
+    doc.text(invoice.senderName || 'The Urban Slide', 14, currentY)
+    doc.setFontSize(10)
+    doc.text(doc.splitTextToSize(invoice.senderAddress || '', 70), 14, currentY + 7)
+    doc.text(doc.splitTextToSize([invoice.senderEmail, invoice.senderPhone].filter(Boolean).join(' • '), 70), 14, currentY + 19)
+
+    doc.setFontSize(11)
+    doc.text('Bill To', 126, currentY)
+    doc.setFontSize(10)
+    doc.text(invoice.billToName || 'Client Name', 126, currentY + 7)
+    doc.text(doc.splitTextToSize(invoice.billToAddress || '', 68), 126, currentY + 13)
+
+    doc.setDrawColor(220, 226, 229)
+    doc.line(14, currentY + 28, 196, currentY + 28)
+
+    autoTable(doc, {
+      startY: currentY + 34,
+      head: [['Description', 'Qty', 'Rate', 'Amount']],
+      body: safeLineItems.map((item) => [
+        item.description || 'Line Item',
+        String(item.quantity || 0),
+        formatCurrency(item.rate),
+        formatCurrency(invoiceLineTotal(item)),
+      ]),
+      foot: [['', '', 'Total', formatCurrency(total)]],
+      headStyles: { fillColor: [15, 118, 110] },
+      footStyles: { fillColor: [16, 67, 61] },
+    })
+
+    const nextY = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? currentY + 92) + 12
+    doc.setFontSize(11)
+    doc.text('Payment Terms', 14, nextY)
+    doc.setFontSize(10)
+    doc.text(doc.splitTextToSize(invoice.paymentTerms || blankInvoice.paymentTerms, 82), 14, nextY + 7)
+
+    doc.setFontSize(11)
+    doc.text('Remit To', 110, nextY)
+    doc.setFontSize(10)
+    doc.text(doc.splitTextToSize(invoice.remitTo || invoice.senderAddress || '', 86), 110, nextY + 7)
+
+    if (invoice.notes) {
+      const notesY = Math.max(nextY + 30, nextY + 14)
+      doc.setFontSize(11)
+      doc.text('Notes', 14, notesY)
+      doc.setFontSize(10)
+      doc.text(doc.splitTextToSize(invoice.notes, 182), 14, notesY + 7)
+    }
+
+    doc.save(`${selectedEvent.name || 'event'}-invoice.pdf`)
+    setMessage('Invoice PDF downloaded.')
+  }
+
   const detail = selectedEvent ?? blankEventDetail()
   const totals = calculateTotals(detail)
+  const currentInvoiceTotal = invoiceTotal(detail.invoice)
   const currentYear = new Date().getFullYear()
   const filteredExpenseItems = useMemo(() => {
     const searchTerm = analyticsExpenseSearch.trim().toLowerCase()
@@ -806,6 +965,9 @@ function App() {
             </button>
             <button className="secondary-button" onClick={exportEventPdf} disabled={!selectedEvent}>
               Export PDF
+            </button>
+            <button className="secondary-button" onClick={exportInvoicePdf} disabled={!selectedEvent}>
+              Invoice PDF
             </button>
             <button className="ghost-button" onClick={handleDeleteEvent} disabled={!selectedEvent || saving}>
               Delete Event
@@ -1069,82 +1231,221 @@ function App() {
               )}
 
               {activeTab === 'payments' && (
-                <TableSection title="Payment Breakdown">
-                  <table className="sheet-table">
-                    <thead>
-                      <tr>
-                        <th>Description</th>
-                        <th>Due Date</th>
-                        <th>Amount Owed</th>
-                        <th>Paid Amount</th>
-                        <th>Remainder</th>
-                        <th>Paid Date</th>
-                        <th>Check #</th>
-                        <th>What was it for?</th>
-                        <th>Calendar</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.payments.map((item, index) => (
-                        <tr key={item.id} className={rowClass(index)}>
-                          <td><input value={item.description} onChange={(event) => updatePaymentRow(item.id, { description: event.target.value })} /></td>
-                          <td><input type="date" value={item.dueDate} onChange={(event) => updatePaymentRow(item.id, { dueDate: event.target.value })} /></td>
-                          <td><MoneyInput value={item.amountOwed} onValueChange={(value) => updatePaymentRow(item.id, { amountOwed: value })} /></td>
-                          <td><MoneyInput value={item.amountPaid} onValueChange={(value) => updatePaymentRow(item.id, { amountPaid: value })} /></td>
-                          <td><output>{formatCurrency(item.amountOwed - item.amountPaid)}</output></td>
-                          <td><input type="date" value={item.paidDate} onChange={(event) => updatePaymentRow(item.id, { paidDate: event.target.value })} /></td>
-                          <td><input value={item.checkNumber} onChange={(event) => updatePaymentRow(item.id, { checkNumber: event.target.value })} /></td>
-                          <td><input value={item.notes} onChange={(event) => updatePaymentRow(item.id, { notes: event.target.value })} /></td>
-                          <td>
-                            <button
-                              className="row-button"
-                              disabled={!item.dueDate}
-                              onClick={() =>
-                                downloadCalendarEntry({
-                                  title: `${detail.name}: ${item.description || 'Payment due'}`,
-                                  description: `Payment reminder for ${detail.name}. Check number: ${item.checkNumber || 'TBD'}. ${item.notes}`,
-                                  date: item.dueDate || todayDate(),
-                                  filename: `${detail.name}-payment-${item.id}.ics`,
-                                })
-                              }
-                            >
-                              Add
-                            </button>
-                          </td>
-                          <td>
-                            <button
-                              className="row-button"
-                              onClick={() => replaceRows('payments', detail.payments.filter((entry) => entry.id !== item.id))}
-                            >
-                              Remove
-                            </button>
-                          </td>
+                <div className="stack">
+                  <TableSection title="Payment Breakdown">
+                    <table className="sheet-table">
+                      <thead>
+                        <tr>
+                          <th>Description</th>
+                          <th>Due Date</th>
+                          <th>Amount Owed</th>
+                          <th>Paid Amount</th>
+                          <th>Remainder</th>
+                          <th>Paid Date</th>
+                          <th>Check #</th>
+                          <th>What was it for?</th>
+                          <th>Calendar</th>
+                          <th></th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <button
-                    className="secondary-button"
-                    onClick={() =>
-                      replaceRows('payments', [
-                        ...detail.payments,
-                        {
-                          id: createTempId(),
-                          description: '',
-                          dueDate: '',
-                          amountOwed: 0,
-                          amountPaid: 0,
-                          paidDate: '',
-                          checkNumber: '',
-                          notes: '',
-                        },
-                      ])
-                    }
-                  >
-                    Add Payment Row
-                  </button>
-                </TableSection>
+                      </thead>
+                      <tbody>
+                        {detail.payments.map((item, index) => (
+                          <tr key={item.id} className={rowClass(index)}>
+                            <td><input value={item.description} onChange={(event) => updatePaymentRow(item.id, { description: event.target.value })} /></td>
+                            <td><input type="date" value={item.dueDate} onChange={(event) => updatePaymentRow(item.id, { dueDate: event.target.value })} /></td>
+                            <td><MoneyInput value={item.amountOwed} onValueChange={(value) => updatePaymentRow(item.id, { amountOwed: value })} /></td>
+                            <td><MoneyInput value={item.amountPaid} onValueChange={(value) => updatePaymentRow(item.id, { amountPaid: value })} /></td>
+                            <td><output>{formatCurrency(item.amountOwed - item.amountPaid)}</output></td>
+                            <td><input type="date" value={item.paidDate} onChange={(event) => updatePaymentRow(item.id, { paidDate: event.target.value })} /></td>
+                            <td><input value={item.checkNumber} onChange={(event) => updatePaymentRow(item.id, { checkNumber: event.target.value })} /></td>
+                            <td><input value={item.notes} onChange={(event) => updatePaymentRow(item.id, { notes: event.target.value })} /></td>
+                            <td>
+                              <button
+                                className="row-button"
+                                disabled={!item.dueDate}
+                                onClick={() =>
+                                  downloadCalendarEntry({
+                                    title: `${detail.name}: ${item.description || 'Payment due'}`,
+                                    description: `Payment reminder for ${detail.name}. Check number: ${item.checkNumber || 'TBD'}. ${item.notes}`,
+                                    date: item.dueDate || todayDate(),
+                                    filename: `${detail.name}-payment-${item.id}.ics`,
+                                  })
+                                }
+                              >
+                                Add
+                              </button>
+                            </td>
+                            <td>
+                              <button
+                                className="row-button"
+                                onClick={() =>
+                                  replaceRows('payments', detail.payments.filter((entry) => entry.id !== item.id))
+                                }
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="invoice-actions">
+                      <button
+                        className="secondary-button"
+                        onClick={() =>
+                          replaceRows('payments', [
+                            ...detail.payments,
+                            {
+                              id: createTempId(),
+                              description: '',
+                              dueDate: '',
+                              amountOwed: 0,
+                              amountPaid: 0,
+                              paidDate: '',
+                              checkNumber: '',
+                              notes: '',
+                            },
+                          ])
+                        }
+                      >
+                        Add Payment Row
+                      </button>
+                    </div>
+                  </TableSection>
+
+                  <div className="sheet-panel">
+                    <div className="panel-header">
+                      <h3>Invoice Builder</h3>
+                      <div className="invoice-actions">
+                        <strong>{formatCurrency(currentInvoiceTotal)}</strong>
+                        <button className="primary-button" onClick={exportInvoicePdf}>
+                          Generate Invoice PDF
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="invoice-grid">
+                      <label>
+                        <span>Invoice Number</span>
+                        <input value={detail.invoice.invoiceNumber} onChange={(event) => updateInvoice({ invoiceNumber: event.target.value })} />
+                      </label>
+                      <label>
+                        <span>Invoice Date</span>
+                        <input type="date" value={detail.invoice.invoiceDate} onChange={(event) => updateInvoice({ invoiceDate: event.target.value })} />
+                      </label>
+                      <label>
+                        <span>Due Date</span>
+                        <input type="date" value={detail.invoice.dueDate} onChange={(event) => updateInvoice({ dueDate: event.target.value })} />
+                      </label>
+                      <label>
+                        <span>Payment Terms</span>
+                        <input value={detail.invoice.paymentTerms} onChange={(event) => updateInvoice({ paymentTerms: event.target.value })} placeholder="Due on receipt, Net 15, 50% deposit..." />
+                      </label>
+                      <label>
+                        <span>From / Business Name</span>
+                        <input value={detail.invoice.senderName} onChange={(event) => updateInvoice({ senderName: event.target.value })} />
+                      </label>
+                      <label>
+                        <span>Business Email</span>
+                        <input value={detail.invoice.senderEmail} onChange={(event) => updateInvoice({ senderEmail: event.target.value })} />
+                      </label>
+                      <label>
+                        <span>Business Phone</span>
+                        <input value={detail.invoice.senderPhone} onChange={(event) => updateInvoice({ senderPhone: event.target.value })} />
+                      </label>
+                      <label>
+                        <span>Charge To Name</span>
+                        <input value={detail.invoice.billToName} onChange={(event) => updateInvoice({ billToName: event.target.value })} />
+                      </label>
+                      <label className="full-span">
+                        <span>Business Address</span>
+                        <textarea value={detail.invoice.senderAddress} onChange={(event) => updateInvoice({ senderAddress: event.target.value })} />
+                      </label>
+                      <label className="full-span">
+                        <span>Charge To Address</span>
+                        <textarea value={detail.invoice.billToAddress} onChange={(event) => updateInvoice({ billToAddress: event.target.value })} />
+                      </label>
+                      <label className="full-span">
+                        <span>Remit To / Payment Instructions</span>
+                        <textarea value={detail.invoice.remitTo} onChange={(event) => updateInvoice({ remitTo: event.target.value })} placeholder="Mail checks to, ACH instructions, Venmo, wire info..." />
+                      </label>
+                      <label className="full-span">
+                        <span>Notes</span>
+                        <textarea value={detail.invoice.notes} onChange={(event) => updateInvoice({ notes: event.target.value })} placeholder="Thank you, event name, deposit language, late fee note..." />
+                      </label>
+                      <label className="full-span">
+                        <span>Logo</span>
+                        <input type="file" accept="image/*" onChange={(event) => void handleInvoiceLogoUpload(event.target.files?.[0] ?? null)} />
+                      </label>
+                    </div>
+
+                    {detail.invoice.logoDataUrl ? (
+                      <div className="logo-preview-wrap">
+                        <img className="logo-preview" src={detail.invoice.logoDataUrl} alt="Invoice logo preview" />
+                        <button className="row-button" onClick={() => updateInvoice({ logoDataUrl: '' })}>
+                          Remove Logo
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <TableSection title="Invoice Line Items">
+                    <table className="sheet-table">
+                      <thead>
+                        <tr>
+                          <th>Description</th>
+                          <th>Quantity</th>
+                          <th>Rate</th>
+                          <th>Amount</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.invoice.lineItems.map((item, index) => (
+                          <tr key={item.id} className={rowClass(index)}>
+                            <td>
+                              <input value={item.description} onChange={(event) => updateInvoiceLineRow(item.id, { description: event.target.value })} />
+                            </td>
+                            <td>
+                              <MoneyInput value={item.quantity} onValueChange={(value) => updateInvoiceLineRow(item.id, { quantity: value })} />
+                            </td>
+                            <td>
+                              <MoneyInput value={item.rate} onValueChange={(value) => updateInvoiceLineRow(item.id, { rate: value })} />
+                            </td>
+                            <td><output>{formatCurrency(invoiceLineTotal(item))}</output></td>
+                            <td>
+                              <button
+                                className="row-button"
+                                onClick={() =>
+                                  updateInvoice({
+                                    lineItems: detail.invoice.lineItems.filter((entry) => entry.id !== item.id),
+                                  })
+                                }
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="invoice-actions">
+                      <button
+                        className="secondary-button"
+                        onClick={() =>
+                          updateInvoice({
+                            lineItems: [
+                              ...detail.invoice.lineItems,
+                              { id: createTempId(), description: '', quantity: 1, rate: 0 },
+                            ],
+                          })
+                        }
+                      >
+                        Add Line Item
+                      </button>
+                    </div>
+                  </TableSection>
+                </div>
               )}
 
               {activeTab === 'contacts' && (

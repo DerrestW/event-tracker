@@ -2,6 +2,7 @@ import type {
   ContractStatus,
   EventDetail,
   EventInfo,
+  InvoiceDraft,
   EventStatus,
   ExpenseCategory,
   TodoProgress,
@@ -50,6 +51,25 @@ export const blankInfo: EventInfo = {
   generalNotes: '',
 }
 
+export const blankInvoice: InvoiceDraft = {
+  invoiceNumber: '',
+  invoiceDate: '',
+  dueDate: '',
+  paymentTerms: 'Due on receipt',
+  senderName: 'The Urban Slide',
+  senderAddress: '',
+  senderEmail: '',
+  senderPhone: '',
+  billToName: '',
+  billToAddress: '',
+  remitTo: '',
+  notes: '',
+  logoDataUrl: '',
+  lineItems: [
+    { id: -1, description: 'Deposit', quantity: 1, rate: 0 },
+  ],
+}
+
 export const blankEventDetail = (): EventDetail => ({
   id: 0,
   name: '',
@@ -76,5 +96,9 @@ export const blankEventDetail = (): EventDetail => ({
   rentals: [],
   timeSlots: [],
   staff: [],
+  invoice: {
+    ...blankInvoice,
+    lineItems: blankInvoice.lineItems.map((item) => ({ ...item })),
+  },
   documents: [],
 })

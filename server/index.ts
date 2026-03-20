@@ -28,6 +28,28 @@ interface EventInfo {
   generalNotes: string
 }
 
+interface InvoiceDraft {
+  invoiceNumber: string
+  invoiceDate: string
+  dueDate: string
+  paymentTerms: string
+  senderName: string
+  senderAddress: string
+  senderEmail: string
+  senderPhone: string
+  billToName: string
+  billToAddress: string
+  remitTo: string
+  notes: string
+  logoDataUrl: string
+  lineItems: Array<{
+    id: number
+    description: string
+    quantity: number
+    rate: number
+  }>
+}
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const rootDir = path.resolve(__dirname, '..')
@@ -214,6 +236,34 @@ database.exec(`
     uploaded_at TEXT NOT NULL,
     FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS invoice_settings (
+    event_id INTEGER PRIMARY KEY,
+    invoice_number TEXT NOT NULL DEFAULT '',
+    invoice_date TEXT NOT NULL DEFAULT '',
+    due_date TEXT NOT NULL DEFAULT '',
+    payment_terms TEXT NOT NULL DEFAULT 'Due on receipt',
+    sender_name TEXT NOT NULL DEFAULT 'The Urban Slide',
+    sender_address TEXT NOT NULL DEFAULT '',
+    sender_email TEXT NOT NULL DEFAULT '',
+    sender_phone TEXT NOT NULL DEFAULT '',
+    bill_to_name TEXT NOT NULL DEFAULT '',
+    bill_to_address TEXT NOT NULL DEFAULT '',
+    remit_to TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    logo_data_url TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS invoice_line_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    quantity REAL NOT NULL DEFAULT 1,
+    rate REAL NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+  );
 `)
 
 const getEventRows = database.prepare(`
@@ -283,6 +333,8 @@ const getRentals = database.prepare(`SELECT id, vendor, drop_off_address, mobile
 const getTimeSlots = database.prepare(`SELECT id, day_label, headcount, details, hours, notes FROM time_slots WHERE event_id = ? ORDER BY sort_order, id`)
 const getStaff = database.prepare(`SELECT id, name, role, email, phone, assigned_shift, arrival_date, departure_date, flight_summary, contract_status, contract_due_date, contract_notes, invite_notes FROM staff WHERE event_id = ? ORDER BY sort_order, id`)
 const getDocuments = database.prepare(`SELECT id, document_type, original_name, stored_name, size, notes, uploaded_at FROM documents WHERE event_id = ? ORDER BY uploaded_at DESC, id DESC`)
+const getInvoiceSettings = database.prepare(`SELECT * FROM invoice_settings WHERE event_id = ?`)
+const getInvoiceLineItems = database.prepare(`SELECT id, description, quantity, rate FROM invoice_line_items WHERE event_id = ? ORDER BY sort_order, id`)
 const getDocument = database.prepare(`SELECT * FROM documents WHERE id = ? AND event_id = ?`)
 const insertDocument = database.prepare(`
   INSERT INTO documents (event_id, document_type, original_name, stored_name, mime_type, size, notes, uploaded_at)
@@ -300,6 +352,7 @@ const deleteHotels = database.prepare(`DELETE FROM hotels WHERE event_id = ?`)
 const deleteRentals = database.prepare(`DELETE FROM rentals WHERE event_id = ?`)
 const deleteTimeSlots = database.prepare(`DELETE FROM time_slots WHERE event_id = ?`)
 const deleteStaff = database.prepare(`DELETE FROM staff WHERE event_id = ?`)
+const deleteInvoiceLineItems = database.prepare(`DELETE FROM invoice_line_items WHERE event_id = ?`)
 
 const insertRevenueItem = database.prepare(`INSERT INTO revenue_items (event_id, label, amount, sort_order) VALUES (?, ?, ?, ?)`)
 const insertExpenseItem = database.prepare(`INSERT INTO expense_items (event_id, category, label, amount, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?)`)
@@ -311,6 +364,40 @@ const insertHotel = database.prepare(`INSERT INTO hotels (event_id, date_label, 
 const insertRental = database.prepare(`INSERT INTO rentals (event_id, vendor, drop_off_address, mobile, office, confirmation, email, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 const insertTimeSlot = database.prepare(`INSERT INTO time_slots (event_id, day_label, headcount, details, hours, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 const insertStaff = database.prepare(`INSERT INTO staff (event_id, name, role, email, phone, assigned_shift, arrival_date, departure_date, flight_summary, contract_status, contract_due_date, contract_notes, invite_notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+const insertInvoiceSettings = database.prepare(`
+  INSERT INTO invoice_settings (
+    event_id,
+    invoice_number,
+    invoice_date,
+    due_date,
+    payment_terms,
+    sender_name,
+    sender_address,
+    sender_email,
+    sender_phone,
+    bill_to_name,
+    bill_to_address,
+    remit_to,
+    notes,
+    logo_data_url
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(event_id) DO UPDATE SET
+    invoice_number = excluded.invoice_number,
+    invoice_date = excluded.invoice_date,
+    due_date = excluded.due_date,
+    payment_terms = excluded.payment_terms,
+    sender_name = excluded.sender_name,
+    sender_address = excluded.sender_address,
+    sender_email = excluded.sender_email,
+    sender_phone = excluded.sender_phone,
+    bill_to_name = excluded.bill_to_name,
+    bill_to_address = excluded.bill_to_address,
+    remit_to = excluded.remit_to,
+    notes = excluded.notes,
+    logo_data_url = excluded.logo_data_url
+`)
+const insertInvoiceLineItem = database.prepare(`INSERT INTO invoice_line_items (event_id, description, quantity, rate, sort_order) VALUES (?, ?, ?, ?, ?)`)
 
 const expenseSeed: Array<{ category: ExpenseCategory; label: string }> = [
   { category: 'equipment', label: '25K Generator' },
@@ -387,6 +474,25 @@ const emptyInfoRow: Record<string, unknown> = {
   general_notes: '',
 }
 
+const defaultInvoice: InvoiceDraft = {
+  invoiceNumber: '',
+  invoiceDate: '',
+  dueDate: '',
+  paymentTerms: 'Due on receipt',
+  senderName: 'The Urban Slide',
+  senderAddress: '',
+  senderEmail: '',
+  senderPhone: '',
+  billToName: '',
+  billToAddress: '',
+  remitTo: '',
+  notes: '',
+  logoDataUrl: '',
+  lineItems: [
+    { id: -1, description: 'Deposit', quantity: 1, rate: 0 },
+  ],
+}
+
 function stringValue(value: unknown) {
   return typeof value === 'string' ? value : ''
 }
@@ -423,6 +529,7 @@ function setEventChildren(eventId: number, payload: Record<string, unknown>) {
   deleteRentals.run(eventId)
   deleteTimeSlots.run(eventId)
   deleteStaff.run(eventId)
+  deleteInvoiceLineItems.run(eventId)
 
   const revenueItems = Array.isArray(payload.revenueItems) ? payload.revenueItems : []
   revenueItems.forEach((item, index) => {
@@ -568,6 +675,19 @@ function setEventChildren(eventId: number, payload: Record<string, unknown>) {
       index,
     )
   })
+
+  const invoice = (payload.invoice as Record<string, unknown> | undefined) ?? {}
+  const lineItems = Array.isArray(invoice.lineItems) ? invoice.lineItems : []
+  lineItems.forEach((item, index) => {
+    const row = item as Record<string, unknown>
+    insertInvoiceLineItem.run(
+      eventId,
+      stringValue(row.description),
+      numberValue(row.quantity) || 0,
+      numberValue(row.rate),
+      index,
+    )
+  })
 }
 
 function createSeedEvent() {
@@ -637,6 +757,27 @@ function createSeedEvent() {
     ),
   )
 
+  insertInvoiceSettings.run(
+    eventId,
+    defaultInvoice.invoiceNumber,
+    defaultInvoice.invoiceDate,
+    defaultInvoice.dueDate,
+    defaultInvoice.paymentTerms,
+    defaultInvoice.senderName,
+    defaultInvoice.senderAddress,
+    defaultInvoice.senderEmail,
+    defaultInvoice.senderPhone,
+    defaultInvoice.billToName,
+    defaultInvoice.billToAddress,
+    defaultInvoice.remitTo,
+    defaultInvoice.notes,
+    defaultInvoice.logoDataUrl,
+  )
+
+  defaultInvoice.lineItems.forEach((item, index) =>
+    insertInvoiceLineItem.run(eventId, item.description, item.quantity, item.rate, index),
+  )
+
   return eventId
 }
 
@@ -687,6 +828,7 @@ function getFullEvent(eventId: number) {
   }
 
   const info = (getEventInfo.get(eventId) as Record<string, unknown> | undefined) ?? emptyInfoRow
+  const invoiceSettings = (getInvoiceSettings.get(eventId) as Record<string, unknown> | undefined) ?? {}
 
   const revenueItems = (getRevenueItems.all(eventId) as Array<Record<string, unknown>>).map((row) => ({
     id: numberValue(row.id),
@@ -797,6 +939,12 @@ function getFullEvent(eventId: number) {
     size: numberValue(row.size),
     url: relativeDocumentUrl(eventId, stringValue(row.stored_name)),
   }))
+  const invoiceLineItems = (getInvoiceLineItems.all(eventId) as Array<Record<string, unknown>>).map((row) => ({
+    id: numberValue(row.id),
+    description: stringValue(row.description),
+    quantity: numberValue(row.quantity),
+    rate: numberValue(row.rate),
+  }))
 
   const extraRevenue = revenueItems.reduce((sum, item) => sum + item.amount, 0)
   const totalExpenses = expenseItems.reduce((sum, item) => sum + item.amount, 0)
@@ -838,6 +986,22 @@ function getFullEvent(eventId: number) {
     rentals,
     timeSlots,
     staff,
+    invoice: {
+      invoiceNumber: stringValue(invoiceSettings.invoice_number),
+      invoiceDate: stringValue(invoiceSettings.invoice_date),
+      dueDate: stringValue(invoiceSettings.due_date),
+      paymentTerms: stringValue(invoiceSettings.payment_terms) || defaultInvoice.paymentTerms,
+      senderName: stringValue(invoiceSettings.sender_name) || defaultInvoice.senderName,
+      senderAddress: stringValue(invoiceSettings.sender_address),
+      senderEmail: stringValue(invoiceSettings.sender_email),
+      senderPhone: stringValue(invoiceSettings.sender_phone),
+      billToName: stringValue(invoiceSettings.bill_to_name),
+      billToAddress: stringValue(invoiceSettings.bill_to_address),
+      remitTo: stringValue(invoiceSettings.remit_to),
+      notes: stringValue(invoiceSettings.notes),
+      logoDataUrl: stringValue(invoiceSettings.logo_data_url),
+      lineItems: invoiceLineItems.length ? invoiceLineItems : defaultInvoice.lineItems,
+    },
     documents,
   }
 }
@@ -998,6 +1162,7 @@ app.put('/api/events/:id', (req, res) => {
 
   const payload = req.body as Record<string, unknown>
   const info = (payload.info as Record<string, unknown> | undefined) ?? {}
+  const invoice = (payload.invoice as Record<string, unknown> | undefined) ?? {}
   const now = new Date().toISOString()
 
   try {
@@ -1025,6 +1190,23 @@ app.put('/api/events/:id', (req, res) => {
       stringValue(info.cityResponsibilities),
       stringValue(info.weatherNotes),
       stringValue(info.generalNotes),
+    )
+
+    insertInvoiceSettings.run(
+      eventId,
+      stringValue(invoice.invoiceNumber),
+      stringValue(invoice.invoiceDate),
+      stringValue(invoice.dueDate),
+      stringValue(invoice.paymentTerms) || defaultInvoice.paymentTerms,
+      stringValue(invoice.senderName) || defaultInvoice.senderName,
+      stringValue(invoice.senderAddress),
+      stringValue(invoice.senderEmail),
+      stringValue(invoice.senderPhone),
+      stringValue(invoice.billToName),
+      stringValue(invoice.billToAddress),
+      stringValue(invoice.remitTo),
+      stringValue(invoice.notes),
+      stringValue(invoice.logoDataUrl),
     )
 
     setEventChildren(eventId, payload)

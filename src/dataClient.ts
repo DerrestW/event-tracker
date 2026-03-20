@@ -4,8 +4,10 @@ import type {
   EventDetail,
   EventDocument,
   EventSummary,
+  InvoiceDraft,
   ReminderItem,
 } from './types'
+import { blankInvoice } from './defaults'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -146,21 +148,7 @@ async function listEventsSupabase() {
 
 async function getEventSupabase(eventId: number) {
   const client = requireSupabase()
-  const [
-    eventRes,
-    infoRes,
-    revenueRes,
-    expenseRes,
-    paymentsRes,
-    contactsRes,
-    todosRes,
-    flightsRes,
-    hotelsRes,
-    rentalsRes,
-    timeSlotsRes,
-    staffRes,
-    documentsRes,
-  ] = await Promise.all([
+  const eventQueries = await Promise.all([
     client.from('events').select('*').eq('id', eventId).single(),
     client.from('event_info').select('*').eq('event_id', eventId).maybeSingle(),
     client.from('revenue_items').select('*').eq('event_id', eventId),
@@ -176,7 +164,7 @@ async function getEventSupabase(eventId: number) {
     client.from('documents').select('*').eq('event_id', eventId),
   ])
 
-  ;[
+  const [
     eventRes,
     infoRes,
     revenueRes,
@@ -190,9 +178,24 @@ async function getEventSupabase(eventId: number) {
     timeSlotsRes,
     staffRes,
     documentsRes,
-  ].forEach((result) => {
+  ] = eventQueries
+
+  eventQueries.forEach((result) => {
     if (result.error) throw result.error
   })
+
+  const [invoiceRes, invoiceLineItemsRes] = await Promise.all([
+    client.from('invoice_settings').select('*').eq('event_id', eventId).maybeSingle(),
+    client.from('invoice_line_items').select('*').eq('event_id', eventId),
+  ])
+
+  const invoiceSettingsMissing =
+    invoiceRes.error && /invoice_settings/.test(invoiceRes.error.message || '')
+  const invoiceLineItemsMissing =
+    invoiceLineItemsRes.error && /invoice_line_items/.test(invoiceLineItemsRes.error.message || '')
+
+  if (invoiceRes.error && !invoiceSettingsMissing) throw invoiceRes.error
+  if (invoiceLineItemsRes.error && !invoiceLineItemsMissing) throw invoiceLineItemsRes.error
 
   const event = eventRes.data
   const revenueItems = sortByOrder(revenueRes.data ?? []).map((row) => ({ id: row.id, label: row.label, amount: Number(row.amount || 0) }))
@@ -284,6 +287,33 @@ async function getEventSupabase(eventId: number) {
     size: row.size,
     url: documentUrl(client, row.storage_path),
   }))
+  const invoiceLineItems = invoiceLineItemsMissing
+    ? []
+    : sortByOrder(invoiceLineItemsRes.data ?? []).map((row) => ({
+        id: row.id,
+        description: row.description,
+        quantity: Number(row.quantity || 0),
+        rate: Number(row.rate || 0),
+      }))
+  const invoice: InvoiceDraft = {
+    ...blankInvoice,
+    invoiceNumber: invoiceSettingsMissing ? blankInvoice.invoiceNumber : invoiceRes.data?.invoice_number ?? '',
+    invoiceDate: invoiceSettingsMissing ? blankInvoice.invoiceDate : invoiceRes.data?.invoice_date ?? '',
+    dueDate: invoiceSettingsMissing ? blankInvoice.dueDate : invoiceRes.data?.due_date ?? '',
+    paymentTerms: invoiceSettingsMissing ? blankInvoice.paymentTerms : invoiceRes.data?.payment_terms ?? blankInvoice.paymentTerms,
+    senderName: invoiceSettingsMissing ? blankInvoice.senderName : invoiceRes.data?.sender_name ?? blankInvoice.senderName,
+    senderAddress: invoiceSettingsMissing ? blankInvoice.senderAddress : invoiceRes.data?.sender_address ?? '',
+    senderEmail: invoiceSettingsMissing ? blankInvoice.senderEmail : invoiceRes.data?.sender_email ?? '',
+    senderPhone: invoiceSettingsMissing ? blankInvoice.senderPhone : invoiceRes.data?.sender_phone ?? '',
+    billToName: invoiceSettingsMissing ? blankInvoice.billToName : invoiceRes.data?.bill_to_name ?? '',
+    billToAddress: invoiceSettingsMissing ? blankInvoice.billToAddress : invoiceRes.data?.bill_to_address ?? '',
+    remitTo: invoiceSettingsMissing ? blankInvoice.remitTo : invoiceRes.data?.remit_to ?? '',
+    notes: invoiceSettingsMissing ? blankInvoice.notes : invoiceRes.data?.notes ?? '',
+    logoDataUrl: invoiceSettingsMissing ? blankInvoice.logoDataUrl : invoiceRes.data?.logo_data_url ?? '',
+    lineItems: invoiceLineItems.length
+      ? invoiceLineItems
+      : blankInvoice.lineItems.map((item) => ({ ...item })),
+  }
 
   const totalRevenue = Number(event.contract_revenue || 0) + revenueItems.reduce((sum, item) => sum + item.amount, 0)
   const totalExpenses = expenseItems.reduce((sum, item) => sum + item.amount, 0)
@@ -324,6 +354,7 @@ async function getEventSupabase(eventId: number) {
     rentals,
     timeSlots,
     staff,
+    invoice,
     documents,
   } satisfies EventDetail
 }
@@ -435,6 +466,33 @@ async function createEventSupabase() {
     })),
   )
 
+  await client.from('invoice_settings').insert({
+    event_id: event.id,
+    invoice_number: '',
+    invoice_date: '',
+    due_date: '',
+    payment_terms: blankInvoice.paymentTerms,
+    sender_name: blankInvoice.senderName,
+    sender_address: '',
+    sender_email: '',
+    sender_phone: '',
+    bill_to_name: '',
+    bill_to_address: '',
+    remit_to: '',
+    notes: '',
+    logo_data_url: '',
+  })
+
+  await client.from('invoice_line_items').insert(
+    blankInvoice.lineItems.map((item, index) => ({
+      event_id: event.id,
+      description: item.description,
+      quantity: item.quantity,
+      rate: item.rate,
+      sort_order: index,
+    })),
+  )
+
   return getEventSupabase(event.id)
 }
 
@@ -478,6 +536,24 @@ async function updateEventSupabase(event: EventDetail) {
   })
   if (infoError) throw infoError
 
+  const { error: invoiceError } = await client.from('invoice_settings').upsert({
+    event_id: event.id,
+    invoice_number: event.invoice.invoiceNumber,
+    invoice_date: event.invoice.invoiceDate,
+    due_date: event.invoice.dueDate,
+    payment_terms: event.invoice.paymentTerms,
+    sender_name: event.invoice.senderName,
+    sender_address: event.invoice.senderAddress,
+    sender_email: event.invoice.senderEmail,
+    sender_phone: event.invoice.senderPhone,
+    bill_to_name: event.invoice.billToName,
+    bill_to_address: event.invoice.billToAddress,
+    remit_to: event.invoice.remitTo,
+    notes: event.invoice.notes,
+    logo_data_url: event.invoice.logoDataUrl,
+  })
+  if (invoiceError) throw invoiceError
+
   await Promise.all([
     replaceRows(client, 'revenue_items', event.id, event.revenueItems.map((item, index) => ({ event_id: event.id, label: item.label, amount: item.amount, sort_order: index }))),
     replaceRows(client, 'expense_items', event.id, event.expenseItems.map((item, index) => ({ event_id: event.id, category: item.category, label: item.label, amount: item.amount, notes: item.notes, sort_order: index }))),
@@ -489,6 +565,7 @@ async function updateEventSupabase(event: EventDetail) {
     replaceRows(client, 'rentals', event.id, event.rentals.map((item, index) => ({ event_id: event.id, vendor: item.vendor, drop_off_address: item.dropOffAddress, mobile: item.mobile, office: item.office, confirmation: item.confirmation, email: item.email, notes: item.notes, sort_order: index }))),
     replaceRows(client, 'time_slots', event.id, event.timeSlots.map((item, index) => ({ event_id: event.id, day_label: item.dayLabel, headcount: item.headcount, details: item.details, hours: item.hours, notes: item.notes, sort_order: index }))),
     replaceRows(client, 'staff', event.id, event.staff.map((item, index) => ({ event_id: event.id, name: item.name, role: item.role, email: item.email, phone: item.phone, assigned_shift: item.assignedShift, arrival_date: item.arrivalDate, departure_date: item.departureDate, flight_summary: item.flightSummary, contract_status: item.contractStatus, contract_due_date: item.contractDueDate, contract_notes: item.contractNotes, invite_notes: item.inviteNotes, sort_order: index }))),
+    replaceRows(client, 'invoice_line_items', event.id, event.invoice.lineItems.map((item, index) => ({ event_id: event.id, description: item.description, quantity: item.quantity, rate: item.rate, sort_order: index }))),
   ])
 
   return getEventSupabase(event.id)
