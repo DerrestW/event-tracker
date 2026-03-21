@@ -427,6 +427,10 @@ textarea {
   display: none;
 }
 
+.mobile-record-list {
+  display: none;
+}
+
 .mobile-staff-card {
   background: rgba(244, 248, 247, 0.78);
   border: 1px solid rgba(15, 118, 110, 0.1);
@@ -434,37 +438,53 @@ textarea {
   padding: 14px;
 }
 
+.mobile-record-card {
+  background: rgba(244, 248, 247, 0.78);
+  border: 1px solid rgba(15, 118, 110, 0.1);
+  border-radius: 18px;
+  padding: 14px;
+}
+
 .mobile-staff-head,
-.mobile-staff-actions {
+.mobile-staff-actions,
+.mobile-record-head,
+.mobile-record-actions,
+.mobile-checkbox-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.mobile-staff-head {
+.mobile-staff-head,
+.mobile-record-head {
   margin-bottom: 12px;
 }
 
-.mobile-staff-grid {
+.mobile-staff-grid,
+.mobile-record-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
 }
 
-.mobile-staff-grid label {
+.mobile-staff-grid label,
+.mobile-record-grid label {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.mobile-staff-grid span {
+.mobile-staff-grid span,
+.mobile-record-grid span {
   font-size: 0.82rem;
   color: var(--muted);
 }
 
 .mobile-staff-grid input,
-.mobile-staff-grid select {
+.mobile-staff-grid select,
+.mobile-record-grid input,
+.mobile-record-grid select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -473,9 +493,20 @@ textarea {
   min-height: 44px;
 }
 
-.mobile-staff-actions {
+.mobile-staff-actions,
+.mobile-record-actions {
   margin-top: 14px;
   flex-wrap: wrap;
+}
+
+.mobile-checkbox-row {
+  margin-bottom: 12px;
+}
+
+.mobile-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .staffing-table {
@@ -939,5 +970,16 @@ textarea {
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+
+  .mobile-record-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .mobile-record-list + .sheet-table {
+    display: none;
   }
 }

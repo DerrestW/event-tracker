@@ -1235,6 +1235,74 @@ function App() {
               {activeTab === 'payments' && (
                 <div className="stack">
                   <TableSection title="Payment Breakdown">
+                    <div className="mobile-record-list">
+                      {detail.payments.map((item) => (
+                        <article key={item.id} className="mobile-record-card">
+                          <div className="mobile-record-head">
+                            <strong>{item.description || 'Payment Row'}</strong>
+                            <button
+                              className="row-button"
+                              onClick={() =>
+                                replaceRows('payments', detail.payments.filter((entry) => entry.id !== item.id))
+                              }
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <div className="mobile-record-grid">
+                            <label>
+                              <span>Description</span>
+                              <input value={item.description} onChange={(event) => updatePaymentRow(item.id, { description: event.target.value })} />
+                            </label>
+                            <label>
+                              <span>Due Date</span>
+                              <input type="date" value={item.dueDate} onChange={(event) => updatePaymentRow(item.id, { dueDate: event.target.value })} />
+                            </label>
+                            <label>
+                              <span>Amount Owed</span>
+                              <MoneyInput value={item.amountOwed} onValueChange={(value) => updatePaymentRow(item.id, { amountOwed: value })} />
+                            </label>
+                            <label>
+                              <span>Paid Amount</span>
+                              <MoneyInput value={item.amountPaid} onValueChange={(value) => updatePaymentRow(item.id, { amountPaid: value })} />
+                            </label>
+                            <label>
+                              <span>Remaining</span>
+                              <input value={formatCurrency(item.amountOwed - item.amountPaid)} readOnly />
+                            </label>
+                            <label>
+                              <span>Paid Date</span>
+                              <input type="date" value={item.paidDate} onChange={(event) => updatePaymentRow(item.id, { paidDate: event.target.value })} />
+                            </label>
+                            <label>
+                              <span>Check Number</span>
+                              <input value={item.checkNumber} onChange={(event) => updatePaymentRow(item.id, { checkNumber: event.target.value })} />
+                            </label>
+                            <label className="full-span">
+                              <span>What Was It For?</span>
+                              <input value={item.notes} onChange={(event) => updatePaymentRow(item.id, { notes: event.target.value })} />
+                            </label>
+                          </div>
+                          <div className="mobile-record-actions">
+                            <button
+                              className="secondary-button compact-button"
+                              disabled={!item.dueDate}
+                              onClick={() =>
+                                downloadCalendarEntry({
+                                  title: `${detail.name}: ${item.description || 'Payment due'}`,
+                                  description: `Payment reminder for ${detail.name}. Check number: ${item.checkNumber || 'TBD'}. ${item.notes}`,
+                                  date: item.dueDate || todayDate(),
+                                  filename: `${detail.name}-payment-${item.id}.ics`,
+                                })
+                              }
+                            >
+                              Add Calendar Reminder
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+
                     <table className="sheet-table">
                       <thead>
                         <tr>
@@ -1452,6 +1520,49 @@ function App() {
 
               {activeTab === 'contacts' && (
                 <TableSection title="Contacts">
+                  <div className="mobile-record-list">
+                    {detail.contacts.map((item) => (
+                      <article key={item.id} className="mobile-record-card">
+                        <div className="mobile-record-head">
+                          <strong>{item.name || 'Contact'}</strong>
+                          <button className="row-button" onClick={() => replaceRows('contacts', detail.contacts.filter((entry) => entry.id !== item.id))}>
+                            Remove
+                          </button>
+                        </div>
+                        <div className="mobile-record-grid">
+                          <label>
+                            <span>Name</span>
+                            <input value={item.name} onChange={(event) => updateContactRow(item.id, { name: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Company</span>
+                            <input value={item.company} onChange={(event) => updateContactRow(item.id, { company: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Role</span>
+                            <input value={item.role} onChange={(event) => updateContactRow(item.id, { role: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Phone</span>
+                            <input value={item.phone} onChange={(event) => updateContactRow(item.id, { phone: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Email</span>
+                            <input value={item.email} onChange={(event) => updateContactRow(item.id, { email: event.target.value })} />
+                          </label>
+                          <label className="full-span">
+                            <span>Quote / Info</span>
+                            <input value={item.quoteInfo} onChange={(event) => updateContactRow(item.id, { quoteInfo: event.target.value })} />
+                          </label>
+                          <label className="full-span">
+                            <span>Notes</span>
+                            <input value={item.notes} onChange={(event) => updateContactRow(item.id, { notes: event.target.value })} />
+                          </label>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+
                   <table className="sheet-table">
                     <thead>
                       <tr>
@@ -1500,6 +1611,87 @@ function App() {
 
               {activeTab === 'todos' && (
                 <TableSection title="To-Do">
+                  <div className="mobile-record-list">
+                    {detail.todos.map((item) => (
+                      <article key={item.id} className="mobile-record-card">
+                        <div className="mobile-record-head">
+                          <strong>{item.task || 'To-Do Item'}</strong>
+                          <button className="row-button" onClick={() => replaceRows('todos', detail.todos.filter((entry) => entry.id !== item.id))}>
+                            Remove
+                          </button>
+                        </div>
+                        <div className="mobile-checkbox-row">
+                          <label className="mobile-checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={item.completed}
+                              onChange={(event) =>
+                                updateTodoRow(item.id, {
+                                  completed: event.target.checked,
+                                  progress: event.target.checked ? 'Done' : 'Not Started',
+                                })
+                              }
+                            />
+                            <span>Done</span>
+                          </label>
+                          <strong>{item.progress}</strong>
+                        </div>
+                        <div className="mobile-record-grid">
+                          <label>
+                            <span>Task</span>
+                            <input value={item.task} onChange={(event) => updateTodoRow(item.id, { task: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Owner</span>
+                            <input value={item.owner} onChange={(event) => updateTodoRow(item.id, { owner: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Progress</span>
+                            <select
+                              value={item.progress}
+                              onChange={(event) =>
+                                updateTodoRow(item.id, {
+                                  progress: event.target.value as TodoProgress,
+                                  completed: event.target.value === 'Done',
+                                })
+                              }
+                            >
+                              {todoProgressOptions.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Due Date</span>
+                            <input type="date" value={item.dueDate} onChange={(event) => updateTodoRow(item.id, { dueDate: event.target.value })} />
+                          </label>
+                          <label className="full-span">
+                            <span>Notes</span>
+                            <input value={item.notes} onChange={(event) => updateTodoRow(item.id, { notes: event.target.value })} />
+                          </label>
+                        </div>
+                        <div className="mobile-record-actions">
+                          <button
+                            className="secondary-button compact-button"
+                            disabled={!item.dueDate}
+                            onClick={() =>
+                              downloadCalendarEntry({
+                                title: `${detail.name}: ${item.task || 'To-do reminder'}`,
+                                description: `Owner: ${item.owner || 'TBD'}\nProgress: ${item.progress}\n${item.notes}`,
+                                date: item.dueDate || todayDate(),
+                                filename: `${detail.name}-todo-${item.id}.ics`,
+                              })
+                            }
+                          >
+                            Add Calendar Reminder
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+
                   <table className="sheet-table">
                     <thead>
                       <tr>
