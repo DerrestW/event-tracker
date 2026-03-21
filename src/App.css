@@ -704,6 +704,7 @@ textarea {
 
   .sidebar {
     min-height: auto;
+    padding: 18px 16px;
   }
 
   .workspace {
@@ -718,8 +719,7 @@ textarea {
   .split-grid,
   .analytics-filter-grid,
   .analytics-mini-strip,
-  .bi-visual-grid,
-  .tab-bar {
+  .bi-visual-grid {
     grid-template-columns: 1fr;
   }
 
@@ -732,5 +732,145 @@ textarea {
   .header-actions {
     width: 100%;
     flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .header-actions .primary-button,
+  .header-actions .secondary-button,
+  .header-actions .ghost-button {
+    width: 100%;
+    margin-top: 0;
+    justify-content: center;
+  }
+
+  .event-list,
+  .reminder-list {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(260px, 82vw);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 8px;
+    padding-right: 0;
+    scroll-snap-type: x proximity;
+  }
+
+  .event-card,
+  .reminder-item {
+    scroll-snap-align: start;
+  }
+
+  .tab-bar {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    margin-inline: -4px;
+  }
+
+  .tab-button {
+    flex: 0 0 auto;
+    min-width: 150px;
+    border-radius: 16px;
+  }
+
+  .tab-button.active {
+    border-bottom: 0;
+    box-shadow: inset 0 -3px 0 var(--accent);
+  }
+
+  .sheet-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sheet-table thead,
+  .sheet-table tbody,
+  .sheet-table tr {
+    white-space: nowrap;
+  }
+
+  .sheet-table input,
+  .sheet-table select {
+    min-width: 120px;
+  }
+
+  .invoice-actions,
+  .logo-preview-wrap,
+  .panel-header,
+  .event-card-head,
+  .event-metrics {
+    flex-wrap: wrap;
+  }
+
+  .logo-preview {
+    max-width: 100%;
+  }
+
+  .summary-card {
+    padding: 16px;
+  }
+
+  .sheet-panel,
+  .empty-workspace {
+    padding: 16px;
+  }
+
+  .summary-card strong {
+    font-size: 1.25rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace {
+    padding: 14px;
+  }
+
+  .sidebar {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .sidebar h1 {
+    font-size: 1.7rem;
+  }
+
+  .workspace-header h2 {
+    font-size: 1.5rem;
+  }
+
+  .overview-grid {
+    margin-bottom: 14px;
+  }
+
+  .summary-strip {
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .tab-button {
+    min-width: 132px;
+    padding: 12px 10px;
+  }
+
+  .event-list,
+  .reminder-list {
+    grid-auto-columns: 88vw;
+  }
+
+  .sheet-table th,
+  .sheet-table td {
+    padding: 9px 7px;
+  }
+
+  .invoice-actions {
+    align-items: stretch;
+  }
+
+  .invoice-actions .primary-button,
+  .invoice-actions .secondary-button {
+    width: 100%;
   }
 }
