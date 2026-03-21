@@ -413,6 +413,69 @@ textarea {
   text-decoration: none;
 }
 
+.table-scroll {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.staffing-table {
+  min-width: 1720px;
+}
+
+.staffing-table th:nth-child(1),
+.staffing-table td:nth-child(1) {
+  min-width: 160px;
+}
+
+.staffing-table th:nth-child(2),
+.staffing-table td:nth-child(2) {
+  min-width: 150px;
+}
+
+.staffing-table th:nth-child(3),
+.staffing-table td:nth-child(3) {
+  min-width: 220px;
+}
+
+.staffing-table th:nth-child(4),
+.staffing-table td:nth-child(4) {
+  min-width: 150px;
+}
+
+.staffing-table th:nth-child(5),
+.staffing-table td:nth-child(5) {
+  min-width: 220px;
+}
+
+.staffing-table th:nth-child(6),
+.staffing-table td:nth-child(6),
+.staffing-table th:nth-child(7),
+.staffing-table td:nth-child(7),
+.staffing-table th:nth-child(10),
+.staffing-table td:nth-child(10) {
+  min-width: 165px;
+}
+
+.staffing-table th:nth-child(8),
+.staffing-table td:nth-child(8),
+.staffing-table th:nth-child(11),
+.staffing-table td:nth-child(11),
+.staffing-table th:nth-child(12),
+.staffing-table td:nth-child(12) {
+  min-width: 200px;
+}
+
+.staffing-table th:nth-child(9),
+.staffing-table td:nth-child(9),
+.staffing-table th:nth-child(13),
+.staffing-table td:nth-child(13),
+.staffing-table th:nth-child(14),
+.staffing-table td:nth-child(14),
+.staffing-table th:nth-child(15),
+.staffing-table td:nth-child(15) {
+  min-width: 130px;
+}
+
 .analytics-strip {
   margin-bottom: 0;
 }
