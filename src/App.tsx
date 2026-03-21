@@ -190,7 +190,9 @@ function App() {
   const [summaries, setSummaries] = useState<EventSummary[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsSnapshot | null>(null)
   const [reminders, setReminders] = useState<ReminderItem[]>([])
-  const [notificationPermission, setNotificationPermission] = useState(Notification.permission)
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
+    typeof Notification === 'undefined' ? 'default' : Notification.permission,
+  )
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<EventDetail | null>(null)
   const [activeTab, setActiveTab] = useState<TabKey>('analytics')
