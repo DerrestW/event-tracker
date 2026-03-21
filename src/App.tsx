@@ -1722,6 +1722,110 @@ function App() {
 
               {activeTab === 'staffing' && (
                 <TableSection title="Staffing, Contracts, And Invites">
+                  <div className="mobile-staff-list">
+                    {detail.staff.map((item) => (
+                      <article key={item.id} className="mobile-staff-card">
+                        <div className="mobile-staff-head">
+                          <strong>{item.name || 'Staff Member'}</strong>
+                          <button
+                            className="row-button"
+                            onClick={() => replaceRows('staff', detail.staff.filter((entry) => entry.id !== item.id))}
+                          >
+                            Remove
+                          </button>
+                        </div>
+
+                        <div className="mobile-staff-grid">
+                          <label>
+                            <span>Name</span>
+                            <input value={item.name} onChange={(event) => updateStaffRow(item.id, { name: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Role</span>
+                            <input value={item.role} onChange={(event) => updateStaffRow(item.id, { role: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Email</span>
+                            <input value={item.email} onChange={(event) => updateStaffRow(item.id, { email: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Phone</span>
+                            <input value={item.phone} onChange={(event) => updateStaffRow(item.id, { phone: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Assigned Shift</span>
+                            <input value={item.assignedShift} onChange={(event) => updateStaffRow(item.id, { assignedShift: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Flight / Travel</span>
+                            <input value={item.flightSummary} onChange={(event) => updateStaffRow(item.id, { flightSummary: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Arrival</span>
+                            <input type="date" value={item.arrivalDate} onChange={(event) => updateStaffRow(item.id, { arrivalDate: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Departure</span>
+                            <input type="date" value={item.departureDate} onChange={(event) => updateStaffRow(item.id, { departureDate: event.target.value })} />
+                          </label>
+                          <label>
+                            <span>Contract Status</span>
+                            <select value={item.contractStatus} onChange={(event) => updateStaffRow(item.id, { contractStatus: event.target.value as ContractStatus })}>
+                              {contractStatusOptions.map((status) => (
+                                <option key={status} value={status}>
+                                  {status}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>Contract Due</span>
+                            <input type="date" value={item.contractDueDate} onChange={(event) => updateStaffRow(item.id, { contractDueDate: event.target.value })} />
+                          </label>
+                          <label className="full-span">
+                            <span>Contract Notes</span>
+                            <input value={item.contractNotes} onChange={(event) => updateStaffRow(item.id, { contractNotes: event.target.value })} />
+                          </label>
+                          <label className="full-span">
+                            <span>Invite Notes</span>
+                            <input value={item.inviteNotes} onChange={(event) => updateStaffRow(item.id, { inviteNotes: event.target.value })} />
+                          </label>
+                        </div>
+
+                        <div className="mobile-staff-actions">
+                          <button
+                            className="secondary-button compact-button"
+                            disabled={!item.arrivalDate}
+                            onClick={() =>
+                              downloadCalendarEntry({
+                                title: `${detail.name}: ${item.name || 'Staff'} shift / travel`,
+                                description: `Role: ${item.role}\nShift: ${item.assignedShift}\nTravel: ${item.flightSummary}\n${item.inviteNotes}`,
+                                date: item.arrivalDate || todayDate(),
+                                filename: `${detail.name}-staff-shift-${item.id}.ics`,
+                              })
+                            }
+                          >
+                            Shift Invite
+                          </button>
+                          <button
+                            className="secondary-button compact-button"
+                            disabled={!item.contractDueDate}
+                            onClick={() =>
+                              downloadCalendarEntry({
+                                title: `${detail.name}: ${item.name || 'Staff'} contract due`,
+                                description: `Contract status: ${item.contractStatus}\n${item.contractNotes}`,
+                                date: item.contractDueDate || todayDate(),
+                                filename: `${detail.name}-staff-contract-${item.id}.ics`,
+                              })
+                            }
+                          >
+                            Contract Invite
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+
                   <div className="table-scroll">
                     <table className="sheet-table staffing-table">
                       <thead>

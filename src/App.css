@@ -19,6 +19,7 @@
 body {
   margin: 0;
   color: var(--ink);
+  overflow-x: hidden;
 }
 
 button,
@@ -32,6 +33,7 @@ textarea {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   min-height: 100vh;
+  min-width: 0;
 }
 
 .sidebar {
@@ -43,6 +45,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-width: 0;
 }
 
 .sidebar-top,
@@ -215,6 +218,7 @@ textarea {
     radial-gradient(circle at top right, rgba(255, 235, 173, 0.45), transparent 30%),
     linear-gradient(180deg, #f4efe5 0%, #edf4f3 100%);
   padding: 28px;
+  min-width: 0;
 }
 
 .workspace-header {
@@ -416,6 +420,62 @@ textarea {
 .table-scroll {
   overflow-x: auto;
   padding-bottom: 6px;
+  max-width: 100%;
+}
+
+.mobile-staff-list {
+  display: none;
+}
+
+.mobile-staff-card {
+  background: rgba(244, 248, 247, 0.78);
+  border: 1px solid rgba(15, 118, 110, 0.1);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.mobile-staff-head,
+.mobile-staff-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mobile-staff-head {
+  margin-bottom: 12px;
+}
+
+.mobile-staff-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.mobile-staff-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-staff-grid span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.mobile-staff-grid input,
+.mobile-staff-grid select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 11px 12px;
+  min-height: 44px;
+}
+
+.mobile-staff-actions {
+  margin-top: 14px;
+  flex-wrap: wrap;
 }
 
 .staffing-table {
@@ -745,14 +805,10 @@ textarea {
 
   .event-list,
   .reminder-list {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(260px, 82vw);
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 8px;
-    padding-right: 0;
-    scroll-snap-type: x proximity;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    padding-bottom: 0;
   }
 
   .event-card,
@@ -784,6 +840,7 @@ textarea {
     overflow-x: auto;
     white-space: nowrap;
     -webkit-overflow-scrolling: touch;
+    max-width: 100%;
   }
 
   .sheet-table thead,
@@ -857,7 +914,7 @@ textarea {
 
   .event-list,
   .reminder-list {
-    grid-auto-columns: 88vw;
+    gap: 10px;
   }
 
   .sheet-table th,
@@ -872,5 +929,15 @@ textarea {
   .invoice-actions .primary-button,
   .invoice-actions .secondary-button {
     width: 100%;
+  }
+
+  .table-scroll {
+    display: none;
+  }
+
+  .mobile-staff-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 }
