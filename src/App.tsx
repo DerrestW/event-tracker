@@ -8,6 +8,22 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 import './App.css'
+import {
+  AlignmentType,
+  Document,
+  HeadingLevel,
+  ImageRun,
+  Packer,
+  PageOrientation,
+  Paragraph,
+  Table,
+  TableCell,
+  TableLayoutType,
+  TableRow,
+  TextRun,
+  WidthType,
+  BorderStyle,
+} from 'docx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
@@ -137,16 +153,6 @@ const rowClass = (index: number) => (index % 2 === 0 ? 'sheet-row' : 'sheet-row 
 
 const todayDate = () => new Date().toISOString().slice(0, 10)
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-
-const nlToBreaks = (value: string) => escapeHtml(value).replace(/\n/g, '<br />')
-
 function buildCalendarFile({
   title,
   description,
@@ -192,30 +198,84 @@ function downloadCalendarEntry(input: { title: string; description: string; date
   URL.revokeObjectURL(url)
 }
 
-function downloadWordDocument(html: string, filename: string) {
-  const fullHtml = `<!DOCTYPE html>
-  <html xmlns:o="urn:schemas-microsoft-com:office:office"
-        xmlns:w="urn:schemas-microsoft-com:office:word"
-        xmlns="http://www.w3.org/TR/REC-html40">
-    <head>
-      <meta charset="utf-8" />
-      <title>${escapeHtml(filename)}</title>
-    </head>
-    <body>${html}</body>
-  </html>`
-
-  const blob = new Blob(['\ufeff', fullHtml], { type: 'application/msword' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
 const invoiceLineTotal = (item: InvoiceLineItem) => item.quantity * item.rate
 const invoiceTotal = (invoice: InvoiceDraft) =>
   invoice.lineItems.reduce((sum, item) => sum + invoiceLineTotal(item), 0)
+
+const tableBorders = {
+  top: { style: BorderStyle.SINGLE, size: 1, color: 'D8E1E1' },
+  bottom: { style: BorderStyle.SINGLE, size: 1, color: 'D8E1E1' },
+  left: { style: BorderStyle.SINGLE, size: 1, color: 'D8E1E1' },
+  right: { style: BorderStyle.SINGLE, size: 1, color: 'D8E1E1' },
+  insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'D8E1E1' },
+  insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'D8E1E1' },
+}
+
+const makeCell = (
+  text: string,
+  options?: {
+    width?: number
+    bold?: boolean
+    shading?: string
+    alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]
+    heading?: boolean
+  },
+) =>
+  new TableCell({
+    width: options?.width ? { size: options.width, type: WidthType.PERCENTAGE } : undefined,
+    shading: options?.shading ? { fill: options.shading } : undefined,
+    children: [
+      new Paragraph({
+        heading: options?.heading ? HeadingLevel.HEADING_3 : undefined,
+        alignment: options?.alignment,
+        children: [
+          new TextRun({
+            text,
+            bold: options?.bold,
+            color: options?.heading ? '244756' : undefined,
+            size: options?.heading ? 22 : 20,
+          }),
+        ],
+      }),
+    ],
+  })
+
+const makeDataTable = (headers: string[], rows: string[][], widths?: number[]) =>
+  new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.FIXED,
+    borders: tableBorders,
+    rows: [
+      new TableRow({
+        tableHeader: true,
+        children: headers.map((header, index) =>
+          makeCell(header, {
+            width: widths?.[index],
+            bold: true,
+            shading: 'E7F3F1',
+          }),
+        ),
+      }),
+      ...rows.map(
+        (row) =>
+          new TableRow({
+            children: row.map((cell, index) => makeCell(cell, { width: widths?.[index] })),
+          }),
+      ),
+    ],
+  })
+
+const makeBulletedParagraphs = (lines: string[]) =>
+  lines
+    .filter(Boolean)
+    .map(
+      (line) =>
+        new Paragraph({
+          bullet: { level: 0 },
+          spacing: { after: 120 },
+          children: [new TextRun({ text: line, size: 20 })],
+        }),
+    )
 
 function App() {
   const [summaries, setSummaries] = useState<EventSummary[]>([])
@@ -674,7 +734,7 @@ function App() {
     setMessage('PDF export downloaded.')
   }
 
-  function exportEventWordDocument() {
+  async function exportEventWordDocument() {
     if (!selectedEvent) {
       return
     }
@@ -684,321 +744,247 @@ function App() {
     const invoiceRows = selectedEvent.invoice.lineItems.filter(
       (item) => item.description.trim() || item.quantity || item.rate,
     )
-
-    const renderTable = (headers: string[], rows: string[][]) => {
-      if (!rows.length) {
-        return '<p class="empty-copy">No entries yet.</p>'
+    const logoRun = async () => {
+      if (!selectedEvent.invoice.logoDataUrl) {
+        return null
       }
 
-      return `
-        <table>
-          <thead>
-            <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>
-          </thead>
-          <tbody>
-            ${rows
-              .map(
-                (row) => `
-                  <tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>
-                `,
-              )
-              .join('')}
-          </tbody>
-        </table>
-      `
+      try {
+        const bytes = await fetch(selectedEvent.invoice.logoDataUrl).then(async (response) =>
+          new Uint8Array(await response.arrayBuffer()),
+        )
+
+        return new ImageRun({
+          data: bytes,
+          transformation: { width: 220, height: 80 },
+        })
+      } catch {
+        return null
+      }
     }
 
-    const section = (title: string, body: string) => `
-      <section class="section">
-        <h2>${escapeHtml(title)}</h2>
-        ${body}
-      </section>
-    `
+    const sectionHeading = (title: string) =>
+      new Paragraph({
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 240, after: 120 },
+        thematicBreak: true,
+        children: [new TextRun({ text: title, color: '0F766E' })],
+      })
 
-    const html = `
-      <style>
-        body {
-          font-family: Arial, sans-serif;
-          color: #1d2a33;
-          margin: 28px;
-          line-height: 1.35;
-        }
-        h1, h2, h3 {
-          font-family: Georgia, "Times New Roman", serif;
-          margin: 0;
-        }
-        h1 {
-          font-size: 24pt;
-          margin-bottom: 6pt;
-          color: #10433d;
-        }
-        h2 {
-          font-size: 14pt;
-          margin-bottom: 10pt;
-          color: #0f766e;
-          border-bottom: 1px solid #d9e4e3;
-          padding-bottom: 4pt;
-        }
-        h3 {
-          font-size: 11pt;
-          margin-bottom: 6pt;
-          color: #244756;
-        }
-        p {
-          margin: 0 0 8pt;
-        }
-        .meta {
-          color: #61727f;
-          margin-bottom: 16pt;
-        }
-        .summary {
-          width: 100%;
-          border-collapse: separate;
-          border-spacing: 10pt;
-          margin: 10pt 0 18pt;
-        }
-        .summary td {
-          border: 1px solid #d3d8dc;
-          background: #f5fbfa;
-          padding: 10pt;
-          width: 25%;
-          vertical-align: top;
-        }
-        .summary-label {
-          font-size: 9pt;
-          color: #61727f;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-        }
-        .summary-value {
-          font-size: 16pt;
-          font-weight: bold;
-          margin-top: 4pt;
-        }
-        .section {
-          margin-top: 16pt;
-        }
-        .two-col {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 12pt;
-        }
-        .two-col td {
-          width: 50%;
-          vertical-align: top;
-          padding-right: 12pt;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 8pt 0 12pt;
-        }
-        th, td {
-          border: 1px solid #d8e1e1;
-          padding: 7pt 8pt;
-          vertical-align: top;
-          text-align: left;
-        }
-        th {
-          background: #e7f3f1;
-          color: #244756;
-          font-size: 9pt;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-        .note-box {
-          background: #f7faf9;
-          border: 1px solid #d8e1e1;
-          padding: 10pt;
-          margin: 8pt 0 12pt;
-        }
-        .empty-copy {
-          color: #61727f;
-          font-style: italic;
-        }
-        .logo {
-          max-height: 70pt;
-          margin-bottom: 10pt;
-        }
-      </style>
-
-      ${selectedEvent.invoice.logoDataUrl ? `<img class="logo" src="${selectedEvent.invoice.logoDataUrl}" alt="Event logo" />` : ''}
-
-      <h1>${escapeHtml(eventTitle)}</h1>
-      <p class="meta">${escapeHtml([selectedEvent.city, selectedEvent.state].filter(Boolean).join(', ') || 'Location TBD')} | ${escapeHtml([selectedEvent.startDate, selectedEvent.endDate].filter(Boolean).join(' to ') || 'Dates TBD')} | ${escapeHtml(selectedEvent.status)}</p>
-
-      <table class="summary">
-        <tr>
-          <td><div class="summary-label">Contract Revenue</div><div class="summary-value">${formatCurrency(selectedEvent.contractRevenue)}</div></td>
-          <td><div class="summary-label">Total Revenue</div><div class="summary-value">${formatCurrency(totals.totalRevenue)}</div></td>
-          <td><div class="summary-label">Total Expenses</div><div class="summary-value">${formatCurrency(totals.totalExpenses)}</div></td>
-          <td><div class="summary-label">Net Return</div><div class="summary-value">${formatCurrency(totals.netReturn)}</div></td>
-        </tr>
-      </table>
-
-      ${section(
-        'Overview',
-        `
-          <table class="two-col">
-            <tr>
-              <td><strong>Meeting Location</strong><p>${nlToBreaks(selectedEvent.info.meetingLocation || 'Not set')}</p></td>
-              <td><strong>General Notes</strong><p>${nlToBreaks(selectedEvent.info.generalNotes || 'None yet')}</p></td>
-            </tr>
-          </table>
-        `,
-      )}
-
-      ${section(
-        'P&L',
-        `
-          <h3>Revenue</h3>
-          ${renderTable(
-            ['Revenue Item', 'Amount'],
-            [
-              ['Contract Revenue', formatCurrency(selectedEvent.contractRevenue)],
-              ...selectedEvent.revenueItems.map((item) => [escapeHtml(item.label || 'Untitled'), formatCurrency(item.amount)]),
-            ],
-          )}
-          <h3>Expenses</h3>
-          ${renderTable(
-            ['Category', 'Description', 'Amount', 'Notes'],
-            selectedEvent.expenseItems.map((item) => [
-              escapeHtml(expenseCategoryLabels[item.category]),
-              escapeHtml(item.label || 'Untitled'),
-              formatCurrency(item.amount),
-              nlToBreaks(item.notes || ''),
-            ]),
-          )}
-        `,
-      )}
-
-      ${section(
-        'Payment Breakdown',
-        renderTable(
-          ['Description', 'Due Date', 'Amount Owed', 'Amount Paid', 'Remaining', 'Paid Date', 'Check #', 'Notes'],
-          selectedEvent.payments.map((item) => [
-            escapeHtml(item.description || 'Payment Row'),
-            escapeHtml(item.dueDate || ''),
-            formatCurrency(item.amountOwed),
-            formatCurrency(item.amountPaid),
-            formatCurrency(item.amountOwed - item.amountPaid),
-            escapeHtml(item.paidDate || ''),
-            escapeHtml(item.checkNumber || ''),
-            nlToBreaks(item.notes || ''),
+    const noteBlock = (title: string, value: string) => [
+      new Paragraph({
+        spacing: { before: 120, after: 60 },
+        children: [new TextRun({ text: title, bold: true, color: '244756' })],
+      }),
+      ...(value
+        ? value.split('\n').map(
+            (line) =>
+              new Paragraph({
+                spacing: { after: 80 },
+                children: [new TextRun({ text: line || ' ', size: 20 })],
+              }),
+          )
+        : [
+            new Paragraph({
+              spacing: { after: 80 },
+              children: [new TextRun({ text: 'None', italics: true, size: 20, color: '61727F' })],
+            }),
           ]),
-        ),
-      )}
+    ]
 
-      ${section(
-        'Invoice Details',
-        `
-          <table class="two-col">
-            <tr>
-              <td>
-                <strong>Invoice Number</strong><p>${escapeHtml(selectedEvent.invoice.invoiceNumber || 'Not set')}</p>
-                <strong>Invoice Date</strong><p>${escapeHtml(selectedEvent.invoice.invoiceDate || 'Not set')}</p>
-                <strong>Due Date</strong><p>${escapeHtml(selectedEvent.invoice.dueDate || 'Not set')}</p>
-                <strong>Payment Terms</strong><p>${nlToBreaks(selectedEvent.invoice.paymentTerms || 'Due on receipt')}</p>
-              </td>
-              <td>
-                <strong>Bill To</strong><p>${nlToBreaks(`${selectedEvent.invoice.billToName || ''}\n${selectedEvent.invoice.billToAddress || ''}`.trim() || 'Not set')}</p>
-                <strong>Remit To</strong><p>${nlToBreaks(selectedEvent.invoice.remitTo || 'Not set')}</p>
-              </td>
-            </tr>
-          </table>
-          ${renderTable(
-            ['Description', 'Quantity', 'Rate', 'Amount'],
-            invoiceRows.map((item) => [
-              escapeHtml(item.description || 'Line Item'),
-              escapeHtml(String(item.quantity || 0)),
-              formatCurrency(item.rate),
-              formatCurrency(invoiceLineTotal(item)),
-            ]),
-          )}
-          <div class="note-box"><strong>Invoice Total:</strong> ${formatCurrency(invoiceTotal(selectedEvent.invoice))}</div>
-          <div class="note-box"><strong>Invoice Notes:</strong><br />${nlToBreaks(selectedEvent.invoice.notes || 'None')}</div>
-        `,
-      )}
+    const children: (Paragraph | Table)[] = []
+    const logo = await logoRun()
+    if (logo) {
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.LEFT,
+          spacing: { after: 160 },
+          children: [logo],
+        }),
+      )
+    }
 
-      ${section(
-        'Contacts',
-        renderTable(
-          ['Name', 'Company', 'Role', 'Phone', 'Email', 'Quote / Info', 'Notes'],
-          selectedEvent.contacts.map((item) => [
-            escapeHtml(item.name || ''),
-            escapeHtml(item.company || ''),
-            escapeHtml(item.role || ''),
-            escapeHtml(item.phone || ''),
-            escapeHtml(item.email || ''),
-            nlToBreaks(item.quoteInfo || ''),
-            nlToBreaks(item.notes || ''),
-          ]),
-        ),
-      )}
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.TITLE,
+        spacing: { after: 120 },
+        children: [new TextRun({ text: eventTitle, color: '10433D', size: 34, bold: true })],
+      }),
+      new Paragraph({
+        spacing: { after: 220 },
+        children: [
+          new TextRun({
+            text: `${[selectedEvent.city, selectedEvent.state].filter(Boolean).join(', ') || 'Location TBD'} | ${[selectedEvent.startDate, selectedEvent.endDate].filter(Boolean).join(' to ') || 'Dates TBD'} | ${selectedEvent.status}`,
+            color: '61727F',
+            size: 20,
+          }),
+        ],
+      }),
+      makeDataTable(
+        ['Contract Revenue', 'Total Revenue', 'Total Expenses', 'Net Return'],
+        [[
+          formatCurrency(selectedEvent.contractRevenue),
+          formatCurrency(totals.totalRevenue),
+          formatCurrency(totals.totalExpenses),
+          formatCurrency(totals.netReturn),
+        ]],
+        [25, 25, 25, 25],
+      ),
+      sectionHeading('Overview'),
+      ...noteBlock('Meeting Location', selectedEvent.info.meetingLocation),
+      ...noteBlock('General Notes', selectedEvent.info.generalNotes),
+      sectionHeading('P&L Revenue'),
+      makeDataTable(
+        ['Revenue Item', 'Amount'],
+        [
+          ['Contract Revenue', formatCurrency(selectedEvent.contractRevenue)],
+          ...selectedEvent.revenueItems.map((item) => [item.label || 'Untitled', formatCurrency(item.amount)]),
+        ],
+        [70, 30],
+      ),
+      sectionHeading('P&L Expenses'),
+      makeDataTable(
+        ['Category', 'Description', 'Amount', 'Notes'],
+        selectedEvent.expenseItems.map((item) => [
+          expenseCategoryLabels[item.category],
+          item.label || 'Untitled',
+          formatCurrency(item.amount),
+          item.notes || '',
+        ]),
+        [22, 34, 14, 30],
+      ),
+      sectionHeading('Payment Breakdown'),
+      makeDataTable(
+        ['Description', 'Due Date', 'Owed', 'Paid', 'Remaining', 'Check #'],
+        selectedEvent.payments.map((item) => [
+          item.description || 'Payment Row',
+          item.dueDate || '',
+          formatCurrency(item.amountOwed),
+          formatCurrency(item.amountPaid),
+          formatCurrency(item.amountOwed - item.amountPaid),
+          item.checkNumber || '',
+        ]),
+        [28, 16, 14, 14, 14, 14],
+      ),
+      sectionHeading('Invoice'),
+      makeDataTable(
+        ['Field', 'Value'],
+        [
+          ['Invoice Number', selectedEvent.invoice.invoiceNumber || 'Not set'],
+          ['Invoice Date', selectedEvent.invoice.invoiceDate || 'Not set'],
+          ['Due Date', selectedEvent.invoice.dueDate || 'Not set'],
+          ['Payment Terms', selectedEvent.invoice.paymentTerms || 'Due on receipt'],
+          ['Bill To', [selectedEvent.invoice.billToName, selectedEvent.invoice.billToAddress].filter(Boolean).join(', ') || 'Not set'],
+          ['Remit To', selectedEvent.invoice.remitTo || 'Not set'],
+        ],
+        [28, 72],
+      ),
+      makeDataTable(
+        ['Description', 'Qty', 'Rate', 'Amount'],
+        (invoiceRows.length ? invoiceRows : blankInvoice.lineItems).map((item) => [
+          item.description || 'Line Item',
+          String(item.quantity || 0),
+          formatCurrency(item.rate),
+          formatCurrency(invoiceLineTotal(item)),
+        ]),
+        [52, 12, 18, 18],
+      ),
+      ...noteBlock('Invoice Notes', selectedEvent.invoice.notes),
+      sectionHeading('Contacts'),
+      ...(
+        selectedEvent.contacts.length
+          ? selectedEvent.contacts.flatMap((item) => [
+              new Paragraph({
+                spacing: { before: 120, after: 60 },
+                children: [new TextRun({ text: `${item.name || 'Contact'}${item.role ? ` • ${item.role}` : ''}`, bold: true })],
+              }),
+              ...makeBulletedParagraphs([
+                item.company ? `Company: ${item.company}` : '',
+                item.phone ? `Phone: ${item.phone}` : '',
+                item.email ? `Email: ${item.email}` : '',
+                item.quoteInfo ? `Quote / Info: ${item.quoteInfo}` : '',
+                item.notes ? `Notes: ${item.notes}` : '',
+              ]),
+            ])
+          : [new Paragraph({ children: [new TextRun({ text: 'No contacts yet.', italics: true, color: '61727F' })] })]
+      ),
+      sectionHeading('To-Do'),
+      makeDataTable(
+        ['Task', 'Owner', 'Progress', 'Due Date', 'Done'],
+        selectedEvent.todos.map((item) => [
+          item.task || '',
+          item.owner || '',
+          item.progress,
+          item.dueDate || '',
+          item.completed ? 'Yes' : 'No',
+        ]),
+        [38, 18, 18, 14, 12],
+      ),
+      sectionHeading('Staffing'),
+      ...(
+        selectedEvent.staff.length
+          ? selectedEvent.staff.flatMap((item) => [
+              new Paragraph({
+                spacing: { before: 120, after: 60 },
+                children: [new TextRun({ text: `${item.name || 'Staff Member'}${item.role ? ` • ${item.role}` : ''}`, bold: true })],
+              }),
+              ...makeBulletedParagraphs([
+                item.email ? `Email: ${item.email}` : '',
+                item.phone ? `Phone: ${item.phone}` : '',
+                item.assignedShift ? `Shift: ${item.assignedShift}` : '',
+                item.arrivalDate ? `Arrival: ${item.arrivalDate}` : '',
+                item.departureDate ? `Departure: ${item.departureDate}` : '',
+                `Contract Status: ${item.contractStatus}`,
+                item.contractDueDate ? `Contract Due: ${item.contractDueDate}` : '',
+                item.flightSummary ? `Travel: ${item.flightSummary}` : '',
+                item.contractNotes ? `Contract Notes: ${item.contractNotes}` : '',
+                item.inviteNotes ? `Invite Notes: ${item.inviteNotes}` : '',
+              ]),
+            ])
+          : [new Paragraph({ children: [new TextRun({ text: 'No staff entries yet.', italics: true, color: '61727F' })] })]
+      ),
+      sectionHeading('Event Info'),
+      ...noteBlock('Overview', selectedEvent.info.overview),
+      ...noteBlock('Payment Schedule Notes', selectedEvent.info.paymentScheduleNotes),
+      ...noteBlock('Staffing Breakdown', selectedEvent.info.staffingBreakdown),
+      ...noteBlock('Parking Notes', selectedEvent.info.parkingNotes),
+      ...noteBlock('Water Usage Notes', selectedEvent.info.waterUsageNotes),
+      ...noteBlock('City Responsibilities', selectedEvent.info.cityResponsibilities),
+      ...noteBlock('Weather Notes', selectedEvent.info.weatherNotes),
+      sectionHeading('Documents'),
+      makeDataTable(
+        ['Type', 'File Name', 'Uploaded', 'Notes'],
+        selectedEvent.documents.map((item) => [
+          item.documentType || '',
+          item.originalName || '',
+          item.uploadedAt || '',
+          item.notes || '',
+        ]),
+        [18, 34, 14, 34],
+      ),
+    )
 
-      ${section(
-        'To-Do',
-        renderTable(
-          ['Task', 'Owner', 'Progress', 'Due Date', 'Completed', 'Notes'],
-          selectedEvent.todos.map((item) => [
-            escapeHtml(item.task || ''),
-            escapeHtml(item.owner || ''),
-            escapeHtml(item.progress),
-            escapeHtml(item.dueDate || ''),
-            item.completed ? 'Yes' : 'No',
-            nlToBreaks(item.notes || ''),
-          ]),
-        ),
-      )}
+    const doc = new Document({
+      sections: [
+        {
+          properties: {
+            page: {
+              margin: { top: 720, right: 720, bottom: 720, left: 720 },
+              size: { orientation: PageOrientation.PORTRAIT },
+            },
+          },
+          children,
+        },
+      ],
+    })
 
-      ${section(
-        'Staffing',
-        renderTable(
-          ['Name', 'Role', 'Email', 'Phone', 'Shift', 'Arrival', 'Departure', 'Contract Status', 'Contract Due', 'Travel', 'Notes'],
-          selectedEvent.staff.map((item) => [
-            escapeHtml(item.name || ''),
-            escapeHtml(item.role || ''),
-            escapeHtml(item.email || ''),
-            escapeHtml(item.phone || ''),
-            escapeHtml(item.assignedShift || ''),
-            escapeHtml(item.arrivalDate || ''),
-            escapeHtml(item.departureDate || ''),
-            escapeHtml(item.contractStatus),
-            escapeHtml(item.contractDueDate || ''),
-            nlToBreaks(item.flightSummary || ''),
-            nlToBreaks([item.contractNotes, item.inviteNotes].filter(Boolean).join('\n') || ''),
-          ]),
-        ),
-      )}
-
-      ${section(
-        'Event Info',
-        `
-          <div class="note-box"><strong>Overview</strong><br />${nlToBreaks(selectedEvent.info.overview || 'None')}</div>
-          <div class="note-box"><strong>Payment Schedule Notes</strong><br />${nlToBreaks(selectedEvent.info.paymentScheduleNotes || 'None')}</div>
-          <div class="note-box"><strong>Staffing Breakdown</strong><br />${nlToBreaks(selectedEvent.info.staffingBreakdown || 'None')}</div>
-          <div class="note-box"><strong>Parking Notes</strong><br />${nlToBreaks(selectedEvent.info.parkingNotes || 'None')}</div>
-          <div class="note-box"><strong>Water Usage</strong><br />${nlToBreaks(selectedEvent.info.waterUsageNotes || 'None')}</div>
-          <div class="note-box"><strong>City Responsibilities</strong><br />${nlToBreaks(selectedEvent.info.cityResponsibilities || 'None')}</div>
-          <div class="note-box"><strong>Weather Notes</strong><br />${nlToBreaks(selectedEvent.info.weatherNotes || 'None')}</div>
-        `,
-      )}
-
-      ${section(
-        'Attached Documents',
-        renderTable(
-          ['Type', 'File Name', 'Uploaded', 'Notes'],
-          selectedEvent.documents.map((item) => [
-            escapeHtml(item.documentType || ''),
-            escapeHtml(item.originalName || ''),
-            escapeHtml(item.uploadedAt || ''),
-            nlToBreaks(item.notes || ''),
-          ]),
-        ),
-      )}
-    `
-
-    downloadWordDocument(html, `${eventTitle || 'event-workbook'}.doc`)
+    const blob = await Packer.toBlob(doc)
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${eventTitle || 'event-workbook'}.docx`
+    anchor.click()
+    URL.revokeObjectURL(url)
     setMessage('Word export downloaded.')
   }
 
