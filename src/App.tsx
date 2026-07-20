@@ -137,6 +137,16 @@ const rowClass = (index: number) => (index % 2 === 0 ? 'sheet-row' : 'sheet-row 
 
 const todayDate = () => new Date().toISOString().slice(0, 10)
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const nlToBreaks = (value: string) => escapeHtml(value).replace(/\n/g, '<br />')
+
 function buildCalendarFile({
   title,
   description,
@@ -178,6 +188,27 @@ function downloadCalendarEntry(input: { title: string; description: string; date
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = input.filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadWordDocument(html: string, filename: string) {
+  const fullHtml = `<!DOCTYPE html>
+  <html xmlns:o="urn:schemas-microsoft-com:office:office"
+        xmlns:w="urn:schemas-microsoft-com:office:word"
+        xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8" />
+      <title>${escapeHtml(filename)}</title>
+    </head>
+    <body>${html}</body>
+  </html>`
+
+  const blob = new Blob(['\ufeff', fullHtml], { type: 'application/msword' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
   anchor.click()
   URL.revokeObjectURL(url)
 }
@@ -643,6 +674,334 @@ function App() {
     setMessage('PDF export downloaded.')
   }
 
+  function exportEventWordDocument() {
+    if (!selectedEvent) {
+      return
+    }
+
+    const totals = calculateTotals(selectedEvent)
+    const eventTitle = selectedEvent.name || 'Event Workbook'
+    const invoiceRows = selectedEvent.invoice.lineItems.filter(
+      (item) => item.description.trim() || item.quantity || item.rate,
+    )
+
+    const renderTable = (headers: string[], rows: string[][]) => {
+      if (!rows.length) {
+        return '<p class="empty-copy">No entries yet.</p>'
+      }
+
+      return `
+        <table>
+          <thead>
+            <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map(
+                (row) => `
+                  <tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>
+                `,
+              )
+              .join('')}
+          </tbody>
+        </table>
+      `
+    }
+
+    const section = (title: string, body: string) => `
+      <section class="section">
+        <h2>${escapeHtml(title)}</h2>
+        ${body}
+      </section>
+    `
+
+    const html = `
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          color: #1d2a33;
+          margin: 28px;
+          line-height: 1.35;
+        }
+        h1, h2, h3 {
+          font-family: Georgia, "Times New Roman", serif;
+          margin: 0;
+        }
+        h1 {
+          font-size: 24pt;
+          margin-bottom: 6pt;
+          color: #10433d;
+        }
+        h2 {
+          font-size: 14pt;
+          margin-bottom: 10pt;
+          color: #0f766e;
+          border-bottom: 1px solid #d9e4e3;
+          padding-bottom: 4pt;
+        }
+        h3 {
+          font-size: 11pt;
+          margin-bottom: 6pt;
+          color: #244756;
+        }
+        p {
+          margin: 0 0 8pt;
+        }
+        .meta {
+          color: #61727f;
+          margin-bottom: 16pt;
+        }
+        .summary {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 10pt;
+          margin: 10pt 0 18pt;
+        }
+        .summary td {
+          border: 1px solid #d3d8dc;
+          background: #f5fbfa;
+          padding: 10pt;
+          width: 25%;
+          vertical-align: top;
+        }
+        .summary-label {
+          font-size: 9pt;
+          color: #61727f;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .summary-value {
+          font-size: 16pt;
+          font-weight: bold;
+          margin-top: 4pt;
+        }
+        .section {
+          margin-top: 16pt;
+        }
+        .two-col {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 12pt;
+        }
+        .two-col td {
+          width: 50%;
+          vertical-align: top;
+          padding-right: 12pt;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 8pt 0 12pt;
+        }
+        th, td {
+          border: 1px solid #d8e1e1;
+          padding: 7pt 8pt;
+          vertical-align: top;
+          text-align: left;
+        }
+        th {
+          background: #e7f3f1;
+          color: #244756;
+          font-size: 9pt;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        .note-box {
+          background: #f7faf9;
+          border: 1px solid #d8e1e1;
+          padding: 10pt;
+          margin: 8pt 0 12pt;
+        }
+        .empty-copy {
+          color: #61727f;
+          font-style: italic;
+        }
+        .logo {
+          max-height: 70pt;
+          margin-bottom: 10pt;
+        }
+      </style>
+
+      ${selectedEvent.invoice.logoDataUrl ? `<img class="logo" src="${selectedEvent.invoice.logoDataUrl}" alt="Event logo" />` : ''}
+
+      <h1>${escapeHtml(eventTitle)}</h1>
+      <p class="meta">${escapeHtml([selectedEvent.city, selectedEvent.state].filter(Boolean).join(', ') || 'Location TBD')} | ${escapeHtml([selectedEvent.startDate, selectedEvent.endDate].filter(Boolean).join(' to ') || 'Dates TBD')} | ${escapeHtml(selectedEvent.status)}</p>
+
+      <table class="summary">
+        <tr>
+          <td><div class="summary-label">Contract Revenue</div><div class="summary-value">${formatCurrency(selectedEvent.contractRevenue)}</div></td>
+          <td><div class="summary-label">Total Revenue</div><div class="summary-value">${formatCurrency(totals.totalRevenue)}</div></td>
+          <td><div class="summary-label">Total Expenses</div><div class="summary-value">${formatCurrency(totals.totalExpenses)}</div></td>
+          <td><div class="summary-label">Net Return</div><div class="summary-value">${formatCurrency(totals.netReturn)}</div></td>
+        </tr>
+      </table>
+
+      ${section(
+        'Overview',
+        `
+          <table class="two-col">
+            <tr>
+              <td><strong>Meeting Location</strong><p>${nlToBreaks(selectedEvent.info.meetingLocation || 'Not set')}</p></td>
+              <td><strong>General Notes</strong><p>${nlToBreaks(selectedEvent.info.generalNotes || 'None yet')}</p></td>
+            </tr>
+          </table>
+        `,
+      )}
+
+      ${section(
+        'P&L',
+        `
+          <h3>Revenue</h3>
+          ${renderTable(
+            ['Revenue Item', 'Amount'],
+            [
+              ['Contract Revenue', formatCurrency(selectedEvent.contractRevenue)],
+              ...selectedEvent.revenueItems.map((item) => [escapeHtml(item.label || 'Untitled'), formatCurrency(item.amount)]),
+            ],
+          )}
+          <h3>Expenses</h3>
+          ${renderTable(
+            ['Category', 'Description', 'Amount', 'Notes'],
+            selectedEvent.expenseItems.map((item) => [
+              escapeHtml(expenseCategoryLabels[item.category]),
+              escapeHtml(item.label || 'Untitled'),
+              formatCurrency(item.amount),
+              nlToBreaks(item.notes || ''),
+            ]),
+          )}
+        `,
+      )}
+
+      ${section(
+        'Payment Breakdown',
+        renderTable(
+          ['Description', 'Due Date', 'Amount Owed', 'Amount Paid', 'Remaining', 'Paid Date', 'Check #', 'Notes'],
+          selectedEvent.payments.map((item) => [
+            escapeHtml(item.description || 'Payment Row'),
+            escapeHtml(item.dueDate || ''),
+            formatCurrency(item.amountOwed),
+            formatCurrency(item.amountPaid),
+            formatCurrency(item.amountOwed - item.amountPaid),
+            escapeHtml(item.paidDate || ''),
+            escapeHtml(item.checkNumber || ''),
+            nlToBreaks(item.notes || ''),
+          ]),
+        ),
+      )}
+
+      ${section(
+        'Invoice Details',
+        `
+          <table class="two-col">
+            <tr>
+              <td>
+                <strong>Invoice Number</strong><p>${escapeHtml(selectedEvent.invoice.invoiceNumber || 'Not set')}</p>
+                <strong>Invoice Date</strong><p>${escapeHtml(selectedEvent.invoice.invoiceDate || 'Not set')}</p>
+                <strong>Due Date</strong><p>${escapeHtml(selectedEvent.invoice.dueDate || 'Not set')}</p>
+                <strong>Payment Terms</strong><p>${nlToBreaks(selectedEvent.invoice.paymentTerms || 'Due on receipt')}</p>
+              </td>
+              <td>
+                <strong>Bill To</strong><p>${nlToBreaks(`${selectedEvent.invoice.billToName || ''}\n${selectedEvent.invoice.billToAddress || ''}`.trim() || 'Not set')}</p>
+                <strong>Remit To</strong><p>${nlToBreaks(selectedEvent.invoice.remitTo || 'Not set')}</p>
+              </td>
+            </tr>
+          </table>
+          ${renderTable(
+            ['Description', 'Quantity', 'Rate', 'Amount'],
+            invoiceRows.map((item) => [
+              escapeHtml(item.description || 'Line Item'),
+              escapeHtml(String(item.quantity || 0)),
+              formatCurrency(item.rate),
+              formatCurrency(invoiceLineTotal(item)),
+            ]),
+          )}
+          <div class="note-box"><strong>Invoice Total:</strong> ${formatCurrency(invoiceTotal(selectedEvent.invoice))}</div>
+          <div class="note-box"><strong>Invoice Notes:</strong><br />${nlToBreaks(selectedEvent.invoice.notes || 'None')}</div>
+        `,
+      )}
+
+      ${section(
+        'Contacts',
+        renderTable(
+          ['Name', 'Company', 'Role', 'Phone', 'Email', 'Quote / Info', 'Notes'],
+          selectedEvent.contacts.map((item) => [
+            escapeHtml(item.name || ''),
+            escapeHtml(item.company || ''),
+            escapeHtml(item.role || ''),
+            escapeHtml(item.phone || ''),
+            escapeHtml(item.email || ''),
+            nlToBreaks(item.quoteInfo || ''),
+            nlToBreaks(item.notes || ''),
+          ]),
+        ),
+      )}
+
+      ${section(
+        'To-Do',
+        renderTable(
+          ['Task', 'Owner', 'Progress', 'Due Date', 'Completed', 'Notes'],
+          selectedEvent.todos.map((item) => [
+            escapeHtml(item.task || ''),
+            escapeHtml(item.owner || ''),
+            escapeHtml(item.progress),
+            escapeHtml(item.dueDate || ''),
+            item.completed ? 'Yes' : 'No',
+            nlToBreaks(item.notes || ''),
+          ]),
+        ),
+      )}
+
+      ${section(
+        'Staffing',
+        renderTable(
+          ['Name', 'Role', 'Email', 'Phone', 'Shift', 'Arrival', 'Departure', 'Contract Status', 'Contract Due', 'Travel', 'Notes'],
+          selectedEvent.staff.map((item) => [
+            escapeHtml(item.name || ''),
+            escapeHtml(item.role || ''),
+            escapeHtml(item.email || ''),
+            escapeHtml(item.phone || ''),
+            escapeHtml(item.assignedShift || ''),
+            escapeHtml(item.arrivalDate || ''),
+            escapeHtml(item.departureDate || ''),
+            escapeHtml(item.contractStatus),
+            escapeHtml(item.contractDueDate || ''),
+            nlToBreaks(item.flightSummary || ''),
+            nlToBreaks([item.contractNotes, item.inviteNotes].filter(Boolean).join('\n') || ''),
+          ]),
+        ),
+      )}
+
+      ${section(
+        'Event Info',
+        `
+          <div class="note-box"><strong>Overview</strong><br />${nlToBreaks(selectedEvent.info.overview || 'None')}</div>
+          <div class="note-box"><strong>Payment Schedule Notes</strong><br />${nlToBreaks(selectedEvent.info.paymentScheduleNotes || 'None')}</div>
+          <div class="note-box"><strong>Staffing Breakdown</strong><br />${nlToBreaks(selectedEvent.info.staffingBreakdown || 'None')}</div>
+          <div class="note-box"><strong>Parking Notes</strong><br />${nlToBreaks(selectedEvent.info.parkingNotes || 'None')}</div>
+          <div class="note-box"><strong>Water Usage</strong><br />${nlToBreaks(selectedEvent.info.waterUsageNotes || 'None')}</div>
+          <div class="note-box"><strong>City Responsibilities</strong><br />${nlToBreaks(selectedEvent.info.cityResponsibilities || 'None')}</div>
+          <div class="note-box"><strong>Weather Notes</strong><br />${nlToBreaks(selectedEvent.info.weatherNotes || 'None')}</div>
+        `,
+      )}
+
+      ${section(
+        'Attached Documents',
+        renderTable(
+          ['Type', 'File Name', 'Uploaded', 'Notes'],
+          selectedEvent.documents.map((item) => [
+            escapeHtml(item.documentType || ''),
+            escapeHtml(item.originalName || ''),
+            escapeHtml(item.uploadedAt || ''),
+            nlToBreaks(item.notes || ''),
+          ]),
+        ),
+      )}
+    `
+
+    downloadWordDocument(html, `${eventTitle || 'event-workbook'}.doc`)
+    setMessage('Word export downloaded.')
+  }
+
   function updateEvent(patch: Partial<EventDetail>) {
     setSelectedEvent((current) => {
       if (!current) {
@@ -964,6 +1323,9 @@ function App() {
             </button>
             <button className="secondary-button" onClick={exportEventWorkbook} disabled={!selectedEvent}>
               Export Excel
+            </button>
+            <button className="secondary-button" onClick={exportEventWordDocument} disabled={!selectedEvent}>
+              Export Word
             </button>
             <button className="secondary-button" onClick={exportEventPdf} disabled={!selectedEvent}>
               Export PDF
